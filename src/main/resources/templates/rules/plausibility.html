@@ -16,6 +16,7 @@
         </a>
         <div class="navbar-nav">
             <a class="nav-link" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
             <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
             <a class="nav-link active" th:href="@{/plausibility}">Plausibilität</a>
             <form class="d-inline" th:action="@{/logout}" method="post">
@@ -48,14 +49,14 @@
             <table class="table table-hover align-middle mb-0">
                 <thead class="table-light">
                 <tr>
-                    <th scope="col">Bereich</th>
-                    <th scope="col">IDs</th>
+                    <th scope="col" class="text-nowrap">Bereich</th>
+                    <th scope="col" class="text-nowrap">IDs</th>
                     <th scope="col">Doppelte Werte</th>
                 </tr>
                 </thead>
                 <tbody>
                 <tr th:each="warning : ${plausibilityWarnings}">
-                    <td>
+                    <td class="text-nowrap">
                         <span class="badge text-bg-warning" th:text="${warning.type}">Regel</span>
                     </td>
                     <td>
@@ -74,14 +75,11 @@
                         </div>
                     </td>
                     <td>
-                        <div class="vstack gap-2">
-                            <div th:each="field : ${warning.fields}">
-                                <div class="fw-semibold" th:text="${field.label}">Eingabemaske</div>
-                                <div>
-                                    <code th:text="|[${field.visibleValue}]|">[ca.␠####]</code>
-                                    <span class="badge text-bg-secondary ms-2" th:text="|${field.length} Zeichen|">8 Zeichen</span>
-                                </div>
-                                <div class="small text-secondary" th:text="${field.codePoints}">U+0063 U+0061</div>
+                        <div class="d-flex flex-column gap-2">
+                            <div class="d-flex flex-wrap align-items-baseline gap-2" th:each="field : ${warning.fields}">
+                                <span class="fw-semibold text-nowrap" th:text="${field.label}">Eingabemaske</span>
+                                <code th:text="|[${field.visibleValue}]|">[ca. ####]</code>
+                                <span class="badge text-bg-secondary" th:text="|${field.length} Zeichen|">8 Zeichen</span>
                             </div>
                         </div>
                     </td>
@@ -100,7 +98,7 @@
     </div>
 
     <p class="text-secondary mt-3 mb-0">
-        Beim CSV-Export werden doppelte generierte Regeln und Tests automatisch nur einmal ausgegeben.
+        Beim CSV-Export werden doppelte generierte Regeln &amp; Tests automatisch nur einmal ausgegeben.
     </p>
 </main>
 

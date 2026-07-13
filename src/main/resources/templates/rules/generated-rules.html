@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Regelgruppen</title>
+    <title>Generierte Regeln</title>
     <base th:href="@{/}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
     <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
@@ -16,8 +16,8 @@
             <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
         </a>
         <div class="navbar-nav">
-            <a class="nav-link active" th:href="@{/rules}">Regelgruppen</a>
-            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
+            <a class="nav-link" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link active" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
             <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
             <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
             <form class="d-inline" th:action="@{/logout}" method="post">
@@ -28,67 +28,57 @@
 </nav>
 
 <main class="container py-4">
-    <div th:if="${message}" class="alert alert-success alert-dismissible fade show" role="alert">
-        <span th:text="${message}"></span>
-        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Schließen"></button>
-    </div>
-
     <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
         <div>
-            <h1 class="h3 mb-1">Regelgruppen</h1>
+            <h1 class="h3 mb-1">Regeln &amp; Tests</h1>
             <p class="text-secondary mb-0">
-                <span th:text="${#lists.size(groups)}">0</span> Gruppen
+                <span th:text="${#lists.size(rules)}">0</span> generierte Regeln
             </p>
         </div>
-        <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
-            <a class="btn btn-outline-primary" th:href="@{/rules/export}">
-                <i class="bi bi-download" aria-hidden="true"></i>
-                CSV herunterladen
-            </a>
-            <a class="btn btn-primary" th:href="@{/rules/new}">
-                <i class="bi bi-plus-lg" aria-hidden="true"></i>
-                Neue Regelgruppe
-            </a>
-        </div>
+        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/rules/export}">
+            <i class="bi bi-download" aria-hidden="true"></i>
+            CSV herunterladen
+        </a>
     </div>
 
+    <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+            <a class="nav-link active"
+               role="tab"
+               aria-selected="true"
+               th:href="@{/generated-rules}">
+                Regeln
+                <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(rules)}">0</span>
+            </a>
+        </li>
+        <li class="nav-item" role="presentation">
+            <a class="nav-link"
+               role="tab"
+               aria-selected="false"
+               th:href="@{/generated-tests}">
+                Tests
+            </a>
+        </li>
+    </ul>
+
     <div class="table-responsive bg-body border rounded">
-        <table id="groupsTable" class="table table-hover align-middle mb-0">
+        <table id="generatedRulesTable" class="table table-hover align-middle mb-0">
             <thead class="table-light">
             <tr>
                 <th scope="col">ID</th>
-                <th scope="col">Name</th>
-                <th scope="col">Beschreibung</th>
-                <th scope="col" class="text-end">Regeln</th>
-                <th scope="col" class="text-end">Tests</th>
-                <th scope="col" class="text-end">Aktion</th>
+                <th scope="col">Eingabemaske</th>
+                <th scope="col">Eingabemuster</th>
+                <th scope="col">Ausgabemaske</th>
+                <th scope="col">Ausgabemuster</th>
             </tr>
             </thead>
             <tbody>
-            <tr th:each="group : ${groups}">
-                <th scope="row" th:text="${group.id}">1</th>
-                <td th:text="${group.name}">R1</td>
-                <td th:text="${group.description}"></td>
-                <td class="text-end">
-                    <a class="badge text-bg-secondary text-decoration-none"
-                       th:href="@{/rules/{id}(id=${group.id})}"
-                       th:text="${group.ruleCount}">1</a>
-                </td>
-                <td class="text-end">
-                    <a class="badge text-bg-secondary text-decoration-none"
-                       th:href="@{/rules/{id}(id=${group.id})}"
-                       th:text="${group.testCount}">1</a>
-                </td>
-                <td class="text-end">
-                    <div class="btn-group btn-group-sm" role="group" aria-label="Aktionen">
-                        <a class="btn btn-outline-primary" th:href="@{/rules/{id}(id=${group.id})}">
-                            Bearbeiten
-                        </a>
-                        <a class="btn btn-outline-danger" th:href="@{/rules/{id}/delete(id=${group.id})}">
-                            Löschen
-                        </a>
-                    </div>
-                </td>
+            <tr th:each="rule : ${rules}">
+                <th scope="row" th:text="${rule.id}">R1</th>
+                <td><code th:text="${rule.inputMask}">####</code></td>
+                <td><code th:text="${rule.inputPattern}">JJJJ</code></td>
+                <td><code th:text="${rule.outputMask}">####</code></td>
+                <td><code th:text="${rule.outputPattern}">JJJJ</code></td>
             </tr>
             </tbody>
         </table>
@@ -106,7 +96,6 @@
         info: '_START_ bis _END_ von _TOTAL_ Einträgen',
         infoEmpty: 'Keine Einträge vorhanden',
         infoFiltered: '(gefiltert aus _MAX_ Einträgen)',
-        infoPostFix: '',
         thousands: '.',
         loadingRecords: 'Wird geladen...',
         processing: 'Bitte warten...',
@@ -123,14 +112,13 @@
             orderableReverse: 'Umgekehrte Sortierung für diese Spalte aktivieren'
         }
     };
-    new DataTable('#groupsTable', {
+    new DataTable('#generatedRulesTable', {
         pageLength: 250,
         lengthMenu: [
             [100, 250, 1000, -1],
             ['100', '250', '1000', 'Alle']
         ],
-        language,
-        columnDefs: [{orderable: false, searchable: false, targets: 5}],
+        language
     });
 </script>
 </body>

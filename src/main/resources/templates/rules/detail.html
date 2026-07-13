@@ -16,6 +16,7 @@
         </a>
         <div class="navbar-nav">
             <a class="nav-link active" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
             <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
             <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
             <form class="d-inline" th:action="@{/logout}" method="post">
@@ -90,7 +91,7 @@
         </section>
 
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <h2 class="h5 mb-0">Generierte Regeln und Tests</h2>
+            <h2 class="h5 mb-0">Generierte Regeln &amp; Tests</h2>
             <button type="submit"
                     class="btn btn-outline-primary"
                     th:formaction="${newGroup} ? @{/rules/new/rules} : @{/rules/{id}/rules(id=${groupForm.id})}"
@@ -123,7 +124,7 @@
                         <li>Weitere Jahres- oder Bereichsvariablen sind z. B. <code>ZZZZ</code>, <code>XXXX</code>, <code>YYYY</code> oder <code>WWWW</code>.</li>
                         <li>Tag/Monat erscheinen oft als <code>T</code>/<code>TT</code> und <code>M</code>/<code>MM</code>; in Eingabemasken können <code>MM</code> und <code>GG</code> auch tokenisierte Monats- oder Wochentagswerte sein.</li>
                         <li>Ausgaben dürfen feste Zusätze enthalten, z. B. <code>0JJJ</code>, <code>19JJ</code>, <code>200J</code>, <code>um JJJJ</code>, <code>ab JJJJ</code> oder <code>-JJJJ</code>.</li>
-                        <li>Platzhalter wie <code>~approx</code> oder <code>~vchr</code> funktionieren in Regeln und Tests.</li>
+                        <li>Platzhalter wie <code>~approx</code> oder <code>~vchr</code> funktionieren in Regeln &amp; Tests.</li>
                     </ul>
                 </div>
                 <div class="col-lg-6">
@@ -321,59 +322,101 @@
             </div>
         </section>
 
-        <section class="bg-body border rounded p-3 p-lg-4 mb-4" th:if="${!#lists.isEmpty(generatedRules)}">
-            <h2 class="h5 mb-3">Regel-Vorschau</h2>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead class="table-light">
-                    <tr>
-                        <th scope="col">ID</th>
-                        <th scope="col">Eingabemaske</th>
-                        <th scope="col">Eingabemuster</th>
-                        <th scope="col">Ausgabemaske</th>
-                        <th scope="col">Ausgabemuster</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr th:each="generatedRule : ${generatedRules}">
-                        <th scope="row" th:text="${generatedRule.id}">R1</th>
-                        <td><code th:text="${generatedRule.inputMask}">####</code></td>
-                        <td><code th:text="${generatedRule.inputPattern}">JJJJ</code></td>
-                        <td><code th:text="${generatedRule.outputMask}">####</code></td>
-                        <td><code th:text="${generatedRule.outputPattern}">JJJJ</code></td>
-                    </tr>
-                    </tbody>
-                </table>
+        <section class="bg-body border rounded p-3 p-lg-4 mb-4"
+                 th:if="${!#lists.isEmpty(generatedRules) or !#lists.isEmpty(generatedTests)}">
+            <h2 class="h5 mb-3">Vorschau</h2>
+            <ul class="nav nav-tabs mb-3" id="previewTabs" role="tablist">
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link active"
+                            id="generated-rules-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#generated-rules-pane"
+                            type="button"
+                            role="tab"
+                            aria-controls="generated-rules-pane"
+                            aria-selected="true">
+                        Generierte Regeln
+                        <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(generatedRules)}">0</span>
+                    </button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link"
+                            id="generated-tests-tab"
+                            data-bs-toggle="tab"
+                            data-bs-target="#generated-tests-pane"
+                            type="button"
+                            role="tab"
+                            aria-controls="generated-tests-pane"
+                            aria-selected="false">
+                        Generierte Tests
+                        <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(generatedTests)}">0</span>
+                    </button>
+                </li>
+            </ul>
+            <div class="tab-content" id="previewTabsContent">
+                <div class="tab-pane fade show active"
+                     id="generated-rules-pane"
+                     role="tabpanel"
+                     aria-labelledby="generated-rules-tab"
+                     tabindex="0">
+                    <div class="table-responsive" th:if="${!#lists.isEmpty(generatedRules)}">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                            <tr>
+                                <th scope="col">ID</th>
+                                <th scope="col">Eingabemaske</th>
+                                <th scope="col">Eingabemuster</th>
+                                <th scope="col">Ausgabemaske</th>
+                                <th scope="col">Ausgabemuster</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr th:each="generatedRule : ${generatedRules}">
+                                <th scope="row" th:text="${generatedRule.id}">R1</th>
+                                <td><code th:text="${generatedRule.inputMask}">####</code></td>
+                                <td><code th:text="${generatedRule.inputPattern}">JJJJ</code></td>
+                                <td><code th:text="${generatedRule.outputMask}">####</code></td>
+                                <td><code th:text="${generatedRule.outputPattern}">JJJJ</code></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-secondary mb-0" th:if="${#lists.isEmpty(generatedRules)}">Keine generierten Regeln vorhanden.</p>
+                </div>
+                <div class="tab-pane fade"
+                     id="generated-tests-pane"
+                     role="tabpanel"
+                     aria-labelledby="generated-tests-tab"
+                     tabindex="0">
+                    <div class="table-responsive" th:if="${!#lists.isEmpty(generatedTests)}">
+                        <table class="table table-sm align-middle mb-0">
+                            <thead class="table-light">
+                            <tr>
+                                <th scope="col">ID</th>
+                                <th scope="col">Regel</th>
+                                <th scope="col">Eingabe</th>
+                                <th scope="col">Tokenisiert</th>
+                                <th scope="col">Ausgabe</th>
+                                <th scope="col">Zeitraum</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr th:each="generatedTest : ${generatedTests}">
+                                <th scope="row" th:text="${generatedTest.id}">T1</th>
+                                <td><code th:text="${generatedTest.ruleId}">R1</code></td>
+                                <td><code th:text="${generatedTest.input}">März 2010</code></td>
+                                <td><code th:text="${generatedTest.tokenized}">MM 2010</code></td>
+                                <td><code th:text="${generatedTest.output}">2010-03</code></td>
+                                <td><code th:text="${generatedTest.timespan}">2010-03-01/2010-03-31</code></td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-secondary mb-0" th:if="${#lists.isEmpty(generatedTests)}">Keine generierten Tests vorhanden.</p>
+                </div>
             </div>
         </section>
 
-        <section class="bg-body border rounded p-3 p-lg-4 mb-4" th:if="${!#lists.isEmpty(generatedTests)}">
-            <h2 class="h5 mb-3">Test-Vorschau</h2>
-            <div class="table-responsive">
-                <table class="table table-sm align-middle mb-0">
-                    <thead class="table-light">
-                    <tr>
-                        <th scope="col">ID</th>
-                        <th scope="col">Regel</th>
-                        <th scope="col">Eingabe</th>
-                        <th scope="col">Tokenisiert</th>
-                        <th scope="col">Ausgabe</th>
-                        <th scope="col">Zeitraum</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr th:each="generatedTest : ${generatedTests}">
-                        <th scope="row" th:text="${generatedTest.id}">T1</th>
-                        <td><code th:text="${generatedTest.ruleId}">R1</code></td>
-                        <td><code th:text="${generatedTest.input}">März 2010</code></td>
-                        <td><code th:text="${generatedTest.tokenized}">MM 2010</code></td>
-                        <td><code th:text="${generatedTest.output}">2010-03</code></td>
-                        <td><code th:text="${generatedTest.timespan}">2010-03-01/2010-03-31</code></td>
-                    </tr>
-                    </tbody>
-                </table>
-            </div>
-        </section>
     </form>
 </main>
 

@@ -89,19 +89,23 @@ public class SqliteRuleRepository {
 
     public List<RuleGroupSummary> findGroupSummaries() {
         return jdbcTemplate.query("""
-                SELECT id, name, description
-                FROM rule_groups
-                ORDER BY id
-                """, (rs, rowNum) -> {
-            long groupId = rs.getLong("id");
-            return new RuleGroupSummary(
+                SELECT g.id,
+                       g.name,
+                       g.description,
+                       COUNT(DISTINCT r.id) AS rule_count,
+                       COUNT(t.id) AS test_count
+                FROM rule_groups g
+                LEFT JOIN rules r ON r.group_id = g.id
+                LEFT JOIN tests t ON t.rule_id = r.id
+                GROUP BY g.id, g.name, g.description
+                ORDER BY g.id
+                """, (rs, rowNum) -> new RuleGroupSummary(
                 rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("description"),
-                generatedRulesForGroup(groupId).size(),
-                generatedTestsForGroup(groupId).size()
-            );
-        });
+                rs.getLong("rule_count"),
+                rs.getLong("test_count")
+        ));
     }
 
     public RuleGroupForm findGroupForm(long groupId) {

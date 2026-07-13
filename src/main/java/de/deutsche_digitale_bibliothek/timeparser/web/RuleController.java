@@ -50,9 +50,19 @@ public class RuleController {
     @GetMapping("/rules")
     public String listRules(Model model) {
         model.addAttribute("groups", repository.findGroupSummaries());
-        model.addAttribute("rules", repository.generatedRules());
-        model.addAttribute("tests", repository.generatedTests());
         return "rules/list";
+    }
+
+    @GetMapping("/generated-rules")
+    public String generatedRules(Model model) {
+        model.addAttribute("rules", repository.generatedRules());
+        return "rules/generated-rules";
+    }
+
+    @GetMapping("/generated-tests")
+    public String generatedTests(Model model) {
+        model.addAttribute("tests", repository.generatedTests());
+        return "rules/generated-tests";
     }
 
     @GetMapping("/plausibility")
@@ -160,7 +170,8 @@ public class RuleController {
         ensureGroupExists(groupId);
         model.addAttribute("groupForm", repository.findGroupForm(groupId));
         model.addAttribute("newGroup", false);
-        addDatabasePreview(model, groupId);
+        model.addAttribute("generatedRules", List.of());
+        model.addAttribute("generatedTests", List.of());
         return "rules/detail";
     }
 
@@ -258,7 +269,7 @@ public class RuleController {
     public String confirmDeleteGroup(@PathVariable long groupId, Model model) {
         ensureGroupExists(groupId);
         model.addAttribute("title", "Regelgruppe löschen");
-        model.addAttribute("message", "Soll diese Regelgruppe mit allen generierten Regeln und Tests wirklich gelöscht werden?");
+        model.addAttribute("message", "Soll diese Regelgruppe mit allen generierten Regeln & Tests wirklich gelöscht werden?");
         model.addAttribute("deleteUrl", "/rules/" + groupId + "/delete");
         model.addAttribute("cancelUrl", "/rules/" + groupId);
         return "rules/confirm-delete";
@@ -419,11 +430,6 @@ public class RuleController {
         if (tests.size() > 1 && testIndex >= 0 && testIndex < tests.size()) {
             tests.remove(testIndex);
         }
-    }
-
-    private void addDatabasePreview(Model model, long groupId) {
-        model.addAttribute("generatedRules", repository.generatedRulesForGroup(groupId));
-        model.addAttribute("generatedTests", repository.generatedTestsForGroup(groupId));
     }
 
     private void addFormPreview(Model model, RuleGroupForm groupForm) {

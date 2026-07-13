@@ -16,6 +16,7 @@
         </a>
         <div class="navbar-nav">
             <a class="nav-link" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
             <a class="nav-link active" th:href="@{/tokens}">Platzhalter</a>
             <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
             <form class="d-inline" th:action="@{/logout}" method="post">
@@ -94,11 +95,13 @@
                 <th scope="row" th:text="${token.name}">approx</th>
                 <td th:text="${token.description}"></td>
                 <td>
-                    <span class="badge text-bg-light border text-dark me-1 mb-1" th:each="value : ${token.visibleValues}">
-                        <code th:text="|[${value.visibleValue}]|">[um]</code>
-                        <span class="text-secondary ms-1" th:text="|${value.length} Zeichen|">2 Zeichen</span>
-                        <span class="text-secondary ms-1" th:text="${value.codePoints}">U+0075 U+006D</span>
-                    </span>
+                    <div class="mb-1" th:each="value : ${token.visibleValues}">
+                        <span class="badge text-bg-light border text-dark">
+                            <code th:text="|[${value.visibleValue}]|">[um]</code>
+                            <span class="text-secondary ms-1" th:text="|${value.length} Zeichen|">2 Zeichen</span>
+                            <span class="text-secondary ms-1" th:text="${value.codePoints}">U+0075 U+006D</span>
+                        </span>
+                    </div>
                 </td>
                 <td class="text-end">
                     <a class="btn btn-sm btn-outline-primary me-2" th:href="@{/tokens/{id}/edit(id=${token.id})}">Bearbeiten</a>
