@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Plausibilität</title>
+    <base th:href="@{/}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
+</head>
+<body class="bg-body-tertiary">
+<nav class="navbar navbar-expand-lg bg-body border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
+            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
+        </a>
+        <div class="navbar-nav">
+            <a class="nav-link" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
+            <a class="nav-link active" th:href="@{/plausibility}">Plausibilität</a>
+            <form class="d-inline" th:action="@{/logout}" method="post">
+                <button type="submit" class="nav-link btn btn-link">Abmelden</button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+        <div>
+            <h1 class="h3 mb-1">Plausibilitätscheck</h1>
+            <p class="text-secondary mb-0">
+                <span th:text="${#lists.size(plausibilityWarnings)}">0</span> Hinweise auf doppelte Werte
+            </p>
+        </div>
+        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/rules/export}">
+            <i class="bi bi-download" aria-hidden="true"></i>
+            CSV herunterladen
+        </a>
+    </div>
+
+    <div th:if="${#lists.isEmpty(plausibilityWarnings)}" class="alert alert-success" role="alert">
+        Es wurden keine doppelten Regel- oder Testwerte gefunden.
+    </div>
+
+    <section th:if="${!#lists.isEmpty(plausibilityWarnings)}" class="bg-body border rounded">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-light">
+                <tr>
+                    <th scope="col">Bereich</th>
+                    <th scope="col">IDs</th>
+                    <th scope="col">Doppelte Werte</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr th:each="warning : ${plausibilityWarnings}">
+                    <td>
+                        <span class="badge text-bg-warning" th:text="${warning.type}">Regel</span>
+                    </td>
+                    <td>
+                        <div class="d-flex flex-wrap gap-2">
+                            <a th:each="entry : ${warning.entries}"
+                               th:if="${entry.groupId > 0}"
+                               class="badge text-bg-light border text-dark text-decoration-none"
+                               th:href="@{/rules/{id}(id=${entry.groupId})} + '#' + ${entry.anchor}">
+                                <code th:text="${entry.id}">R1</code>
+                            </a>
+                            <span th:each="entry : ${warning.entries}"
+                                  th:if="${entry.groupId == 0}"
+                                  class="badge text-bg-light border text-dark">
+                                <code th:text="${entry.id}">R1</code>
+                            </span>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="vstack gap-2">
+                            <div th:each="field : ${warning.fields}">
+                                <div class="fw-semibold" th:text="${field.label}">Eingabemaske</div>
+                                <div>
+                                    <code th:text="|[${field.visibleValue}]|">[ca.␠####]</code>
+                                    <span class="badge text-bg-secondary ms-2" th:text="|${field.length} Zeichen|">8 Zeichen</span>
+                                </div>
+                                <div class="small text-secondary" th:text="${field.codePoints}">U+0063 U+0061</div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <div th:if="${!#lists.isEmpty(plausibilityWarnings)}" class="alert alert-info mt-3 mb-0" role="alert">
+        <span class="fw-semibold">Leerzeichen-Legende:</span>
+        <code>[␠]</code> normales Leerzeichen,
+        <code>[⍽]</code> geschütztes Leerzeichen,
+        <code>[⎵]</code> schmales geschütztes Leerzeichen,
+        <code>[⇥]</code> Tabulator.
+    </div>
+
+    <p class="text-secondary mt-3 mb-0">
+        Beim CSV-Export werden doppelte generierte Regeln und Tests automatisch nur einmal ausgegeben.
+    </p>
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

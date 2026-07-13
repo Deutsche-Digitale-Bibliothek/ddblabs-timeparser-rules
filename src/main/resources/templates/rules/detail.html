@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${newGroup} ? 'Neue Regelgruppe' : ${groupForm.name}">Regelgruppe</title>
+    <base th:href="@{/}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
+</head>
+<body class="bg-body-tertiary">
+<nav class="navbar navbar-expand-lg bg-body border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
+            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
+        </a>
+        <div class="navbar-nav">
+            <a class="nav-link active" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
+            <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
+            <form class="d-inline" th:action="@{/logout}" method="post">
+                <button type="submit" class="nav-link btn btn-link">Abmelden</button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="mb-3">
+        <a class="btn btn-outline-secondary btn-sm" th:href="@{/rules}">
+            <i class="bi bi-arrow-left" aria-hidden="true"></i>
+            Zurück
+        </a>
+    </div>
+
+    <div th:if="${message}" class="alert alert-success alert-dismissible fade show" role="alert">
+        <span th:text="${message}"></span>
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Schließen"></button>
+    </div>
+
+    <form th:action="${newGroup} ? @{/rules/new} : @{/rules/{id}(id=${groupForm.id})}" th:object="${groupForm}" method="post">
+        <div th:if="${#fields.hasAnyErrors()}" class="alert alert-danger" role="alert">
+            Bitte prüfen Sie die markierten Felder.
+        </div>
+        <div th:if="${previewWarning}" class="alert alert-warning" role="alert">
+            <span th:text="${previewWarning}"></span>
+        </div>
+
+        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+            <div>
+                <h1 class="h3 mb-1" th:text="${newGroup} ? 'Neue Regelgruppe' : ${groupForm.name}">Regelgruppe</h1>
+                <p class="text-secondary mb-0">
+                    <span th:text="${#lists.size(groupForm.rules)}">0</span> generierte Regeln
+                </p>
+            </div>
+            <div class="d-flex gap-2">
+                <a th:if="${!newGroup}" class="btn btn-outline-danger" th:href="@{/rules/{id}/delete(id=${groupForm.id})}">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                    Löschen
+                </a>
+                <button type="submit"
+                        class="btn btn-outline-secondary"
+                        th:formaction="${newGroup} ? @{/rules/new/preview} : @{/rules/{id}/preview(id=${groupForm.id})}"
+                        formmethod="post">
+                    Vorschau aktualisieren
+                </button>
+                <button type="submit" class="btn btn-primary">
+                    <i class="bi bi-floppy" aria-hidden="true"></i>
+                    Speichern
+                </button>
+            </div>
+        </div>
+
+        <section class="bg-body border rounded p-3 p-lg-4 mb-4">
+            <h2 class="h5 mb-3">Pflegedaten</h2>
+            <input type="hidden" th:field="*{id}">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label for="name" class="form-label">Name</label>
+                    <input id="name" class="form-control"
+                           th:classappend="${#fields.hasErrors('name')} ? 'is-invalid'"
+                           th:field="*{name}">
+                    <div class="invalid-feedback" th:errors="*{name}"></div>
+                </div>
+                <div class="col-md-6">
+                    <label for="description" class="form-label">Beschreibung</label>
+                    <input id="description" class="form-control" th:field="*{description}">
+                </div>
+            </div>
+        </section>
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="h5 mb-0">Generierte Regeln und Tests</h2>
+            <button type="submit"
+                    class="btn btn-outline-primary"
+                    th:formaction="${newGroup} ? @{/rules/new/rules} : @{/rules/{id}/rules(id=${groupForm.id})}"
+                    formmethod="post">
+                <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                Regelvariante hinzufügen
+            </button>
+        </div>
+
+        <div class="alert alert-info" role="note">
+            <div class="fw-semibold mb-2">Kurzsyntax</div>
+            <div class="row g-3">
+                <div class="col-lg-6">
+                    <ul class="mb-0">
+                        <li><code>#</code> steht in Masken für genau eine Ziffer; alle anderen Zeichen sind Literale.</li>
+                        <li>Maske und Muster müssen gleich lang sein, ebenso Ausgabemaske und Ausgabemuster.</li>
+                        <li>Gleiche Musterbuchstaben bilden eine Variable, z. B. <code>####</code> / <code>JJJJ</code>.</li>
+                        <li>Häufige Jahresvariablen sind <code>J</code>, <code>JJ</code>, <code>JJJ</code>, <code>JJJJ</code> und längere Folgen.</li>
+                        <li>Weitere Jahres- oder Bereichsvariablen sind z. B. <code>ZZZZ</code>, <code>XXXX</code>, <code>YYYY</code> oder <code>WWWW</code>.</li>
+                        <li>Tag/Monat erscheinen oft als <code>T</code>/<code>TT</code> und <code>M</code>/<code>MM</code>; in Eingabemasken können <code>MM</code> und <code>GG</code> auch tokenisierte Monats- oder Wochentagswerte sein.</li>
+                        <li>Ausgaben dürfen feste Zusätze enthalten, z. B. <code>0JJJ</code>, <code>19JJ</code>, <code>200J</code>, <code>um JJJJ</code>, <code>ab JJJJ</code> oder <code>-JJJJ</code>.</li>
+                        <li>Platzhalter wie <code>~approx</code> oder <code>~vchr</code> funktionieren in Regeln und Tests.</li>
+                    </ul>
+                </div>
+                <div class="col-lg-6">
+                    <div class="small text-secondary mb-1">Beispiele</div>
+                    <div class="font-monospace small">
+                        <div>MM #### / MM JJJJ</div>
+                        <div>####-## / JJJJ-MM</div>
+                        <div>März 2010 -> 2010-03</div>
+                        <div class="mt-2">####-#### / JJJJ-ZZZZ</div>
+                        <div>####/#### / JJJJ/ZZZZ</div>
+                        <div>1400-1600 -> 1400/1600</div>
+                        <div class="mt-2">### MM # / JJJ MM T</div>
+                        <div>0###-##-0# / 0JJJ-MM-0T</div>
+                        <div>800 März 2 -> 0800-03-02</div>
+                    </div>
+                    <div class="small text-secondary mt-2">Literale Zeichen und Leerzeichen müssen exakt passen. Tests werden nur generiert, wenn der tokenisierte Testwert zur generierten Eingabemaske passt.</div>
+                    <div class="small text-secondary mt-2">Zeiträume sind ISO-Datumsbereiche wie <code>2010-01-01/2010-12-31</code>; der gültige Jahresbereich ist durch ISO-Datum/Java begrenzt.</div>
+                </div>
+            </div>
+        </div>
+
+        <section class="bg-body border rounded p-3 p-lg-4 mb-4"
+                 th:each="rule, ruleStat : *{rules}"
+                 data-rule-section
+                 th:id="|rule-${rule.id}|">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+                <h3 class="h6 mb-0">
+                    Regel
+                    <code th:text="${#strings.isEmpty(rule.id)} ? 'automatisch' : ${rule.id}">R1</code>
+                </h3>
+                <div class="d-flex gap-2 align-self-start">
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-primary"
+                            th:formaction="${newGroup} ? @{/rules/new/rules/{index}/tests(index=${ruleStat.index})} : @{/rules/{id}/rules/{index}/tests(id=${groupForm.id}, index=${ruleStat.index})}"
+                            formmethod="post">
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                        Test hinzufügen
+                    </button>
+                    <a th:if="${!newGroup and !#strings.isEmpty(rule.id) and #lists.size(groupForm.rules) > 1}"
+                       class="btn btn-sm btn-outline-danger"
+                       th:href="@{/rules/{groupId}/rules/{ruleId}/delete(groupId=${groupForm.id}, ruleId=${rule.id})}">
+                        Löschen
+                    </a>
+                    <button th:if="${(newGroup or #strings.isEmpty(rule.id)) and #lists.size(groupForm.rules) > 1}"
+                            type="submit"
+                            class="btn btn-sm btn-outline-danger"
+                            th:formaction="${newGroup} ? @{/rules/new/rules/{index}/remove(index=${ruleStat.index})} : @{/rules/{id}/rules/{index}/remove(id=${groupForm.id}, index=${ruleStat.index})}"
+                            formmethod="post">
+                        Entfernen
+                    </button>
+                </div>
+            </div>
+
+            <input type="hidden" th:field="*{rules[__${ruleStat.index}__].id}">
+            <div class="row g-3 mb-4">
+                <div class="col-md-6 col-xl-3">
+                    <label class="form-label" th:for="|rules${ruleStat.index}.inputMask|">Eingabemaske</label>
+                    <input class="form-control font-monospace"
+                           th:id="|rules${ruleStat.index}.inputMask|"
+                           placeholder="MM ####"
+                           data-rule-input-mask
+                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputMask')} ? 'is-invalid'"
+                           th:field="*{rules[__${ruleStat.index}__].inputMask}">
+                    <div class="form-text">Maske der tokenisierten Eingabe, z. B. <code>MM ####</code>.</div>
+                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputMask}"></div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <label class="form-label" th:for="|rules${ruleStat.index}.inputPattern|">Eingabemuster</label>
+                    <input class="form-control font-monospace"
+                           th:id="|rules${ruleStat.index}.inputPattern|"
+                           placeholder="MM JJJJ"
+                           data-rule-input-pattern
+                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputPattern')} ? 'is-invalid'"
+                           th:field="*{rules[__${ruleStat.index}__].inputPattern}">
+                    <div class="form-text">Variablen passend zur Eingabemaske, z. B. <code>MM JJJJ</code>.</div>
+                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputPattern}"></div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <label class="form-label" th:for="|rules${ruleStat.index}.outputMask|">Ausgabemaske</label>
+                    <input class="form-control font-monospace"
+                           th:id="|rules${ruleStat.index}.outputMask|"
+                           placeholder="####-##"
+                           data-rule-output-mask
+                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputMask')} ? 'is-invalid'"
+                           th:field="*{rules[__${ruleStat.index}__].outputMask}">
+                    <div class="form-text">Maske der Parser-Eingabe, z. B. <code>####-##</code>.</div>
+                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputMask}"></div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <label class="form-label" th:for="|rules${ruleStat.index}.outputPattern|">Ausgabemuster</label>
+                    <input class="form-control font-monospace"
+                           th:id="|rules${ruleStat.index}.outputPattern|"
+                           placeholder="JJJJ-MM"
+                           data-rule-output-pattern
+                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputPattern')} ? 'is-invalid'"
+                           th:field="*{rules[__${ruleStat.index}__].outputPattern}">
+                    <div class="form-text">Zusammensetzung der Ausgabe, z. B. <code>JJJJ-MM</code>.</div>
+                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputPattern}"></div>
+                </div>
+            </div>
+
+            <div class="table-responsive">
+                <table class="table align-middle mb-0">
+                    <thead class="table-light">
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Eingabe</th>
+                        <th scope="col">Tokenisiert</th>
+                        <th scope="col">Ausgabe</th>
+                        <th scope="col">Zeitraum</th>
+                        <th scope="col" class="text-end">Aktion</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="test, testStat : *{rules[__${ruleStat.index}__].tests}" data-test-row>
+                        <td>
+                            <input type="hidden" th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].id}">
+                            <code th:text="${#strings.isEmpty(test.id)} ? 'automatisch' : ${test.id}">T1</code>
+                        </td>
+                        <td>
+                            <input class="form-control form-control-sm font-monospace" size="14"
+                                   placeholder="~approx 800"
+                                   data-test-input
+                                   th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].input')} ? 'is-invalid'"
+                                   th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].input}">
+                            <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].input}"></div>
+                        </td>
+                        <td>
+                            <input class="form-control form-control-sm font-monospace" size="14"
+                                   placeholder="~approx 800"
+                                   data-test-tokenized
+                                   th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].tokenized')} ? 'is-invalid'"
+                                   th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].tokenized}">
+                            <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].tokenized}"></div>
+                        </td>
+                        <td>
+                            <input class="form-control form-control-sm font-monospace" size="14"
+                                   placeholder="um 0800"
+                                   data-test-output
+                                   th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].output')} ? 'is-invalid'"
+                                   th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].output}">
+                            <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].output}"></div>
+                        </td>
+                        <td>
+                            <input class="form-control form-control-sm font-monospace" size="20"
+                                   placeholder="2010-03-01/2010-03-31"
+                                   data-test-timespan
+                                   th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].timespan')} ? 'is-invalid'"
+                                   th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}">
+                            <div class="form-text">ISO-Zeitraum Start/Ende, z. B. <code>2010-01-01/2010-12-31</code>.</div>
+                            <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}"></div>
+                        </td>
+                        <td class="text-end">
+                            <div class="d-flex justify-content-end gap-2">
+                                <button type="button"
+                                        class="btn btn-sm btn-outline-secondary"
+                                        data-edit-test-row>
+                                    Bearbeiten
+                                </button>
+                                <a th:if="${!newGroup and !#strings.isEmpty(rule.id) and !#strings.isEmpty(test.id) and #lists.size(rule.tests) > 1}"
+                                   class="btn btn-sm btn-outline-danger"
+                                   th:href="@{/rules/{groupId}/rules/{ruleId}/tests/{testId}/delete(groupId=${groupForm.id}, ruleId=${rule.id}, testId=${test.id})}">
+                                    Löschen
+                                </a>
+                                <button th:if="${!newGroup and !#strings.isEmpty(rule.id) and !#strings.isEmpty(test.id) and #lists.size(rule.tests) <= 1}"
+                                        type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        disabled>
+                                    Löschen
+                                </button>
+                                <button th:if="${(newGroup or #strings.isEmpty(test.id)) and #lists.size(rule.tests) > 1}"
+                                        type="submit"
+                                        class="btn btn-sm btn-outline-danger"
+                                        th:formaction="${newGroup} ? @{/rules/new/rules/{ruleIndex}/tests/{testIndex}/remove(ruleIndex=${ruleStat.index}, testIndex=${testStat.index})} : @{/rules/{id}/rules/{ruleIndex}/tests/{testIndex}/remove(id=${groupForm.id}, ruleIndex=${ruleStat.index}, testIndex=${testStat.index})}"
+                                        formmethod="post">
+                                    Löschen
+                                </button>
+                                <button th:if="${(newGroup or #strings.isEmpty(test.id)) and #lists.size(rule.tests) <= 1}"
+                                        type="button"
+                                        class="btn btn-sm btn-outline-danger"
+                                        disabled>
+                                    Löschen
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr th:if="${#lists.isEmpty(rule.tests)}">
+                        <td colspan="6" class="text-center text-secondary py-4">Keine Tests vorhanden.</td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="bg-body border rounded p-3 p-lg-4 mb-4" th:if="${!#lists.isEmpty(generatedRules)}">
+            <h2 class="h5 mb-3">Regel-Vorschau</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Eingabemaske</th>
+                        <th scope="col">Eingabemuster</th>
+                        <th scope="col">Ausgabemaske</th>
+                        <th scope="col">Ausgabemuster</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="generatedRule : ${generatedRules}">
+                        <th scope="row" th:text="${generatedRule.id}">R1</th>
+                        <td><code th:text="${generatedRule.inputMask}">####</code></td>
+                        <td><code th:text="${generatedRule.inputPattern}">JJJJ</code></td>
+                        <td><code th:text="${generatedRule.outputMask}">####</code></td>
+                        <td><code th:text="${generatedRule.outputPattern}">JJJJ</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="bg-body border rounded p-3 p-lg-4 mb-4" th:if="${!#lists.isEmpty(generatedTests)}">
+            <h2 class="h5 mb-3">Test-Vorschau</h2>
+            <div class="table-responsive">
+                <table class="table table-sm align-middle mb-0">
+                    <thead class="table-light">
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Regel</th>
+                        <th scope="col">Eingabe</th>
+                        <th scope="col">Tokenisiert</th>
+                        <th scope="col">Ausgabe</th>
+                        <th scope="col">Zeitraum</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    <tr th:each="generatedTest : ${generatedTests}">
+                        <th scope="row" th:text="${generatedTest.id}">T1</th>
+                        <td><code th:text="${generatedTest.ruleId}">R1</code></td>
+                        <td><code th:text="${generatedTest.input}">März 2010</code></td>
+                        <td><code th:text="${generatedTest.tokenized}">MM 2010</code></td>
+                        <td><code th:text="${generatedTest.output}">2010-03</code></td>
+                        <td><code th:text="${generatedTest.timespan}">2010-03-01/2010-03-31</code></td>
+                    </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </form>
+</main>
+
+<script>
+    (() => {
+        const length = (value) => Array.from(value || '').length;
+        const hasToken = (value) => (value || '').includes('~');
+
+        function feedback(input) {
+            let element = input.parentElement.querySelector('.invalid-feedback');
+            if (!element) {
+                element = document.createElement('div');
+                element.className = 'invalid-feedback';
+                input.insertAdjacentElement('afterend', element);
+            }
+            return element;
+        }
+
+        function setLiveError(input, message) {
+            const element = feedback(input);
+            if (message) {
+                input.classList.add('is-invalid');
+                input.dataset.liveInvalid = 'true';
+                element.textContent = message;
+                return;
+            }
+            if (input.dataset.liveInvalid === 'true') {
+                input.classList.remove('is-invalid');
+                delete input.dataset.liveInvalid;
+                element.textContent = '';
+            }
+        }
+
+        function compare(patternInput, maskInput, message) {
+            if (!patternInput || !maskInput || !patternInput.value || !maskInput.value) {
+                setLiveError(patternInput, '');
+                return;
+            }
+            setLiveError(patternInput, length(patternInput.value) === length(maskInput.value) ? '' : message);
+        }
+
+        function compareGenerated(valueInput, maskInput, message) {
+            if (!valueInput || !maskInput || !valueInput.value || !maskInput.value || hasToken(valueInput.value) || hasToken(maskInput.value)) {
+                setLiveError(valueInput, '');
+                return;
+            }
+            setLiveError(valueInput, length(valueInput.value) === length(maskInput.value) ? '' : message);
+        }
+
+        function parseIsoDate(value) {
+            const match = /^([+-]?\d{4,9})-(\d{2})-(\d{2})$/.exec(value);
+            if (!match) {
+                return null;
+            }
+            const year = Number(match[1]);
+            const month = Number(match[2]);
+            const day = Number(match[3]);
+            if (year < -999999999 || year > 999999999 || month < 1 || month > 12) {
+                return null;
+            }
+            const days = [31, isLeapYear(year) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+            if (day < 1 || day > days[month - 1]) {
+                return null;
+            }
+            return {year, month, day};
+        }
+
+        function isLeapYear(year) {
+            return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+        }
+
+        function compareDate(left, right) {
+            return left.year - right.year || left.month - right.month || left.day - right.day;
+        }
+
+        function validateTimespan(input) {
+            if (!input || !input.value) {
+                setLiveError(input, '');
+                return;
+            }
+            const parts = input.value.split('/');
+            if (parts.length !== 2) {
+                setLiveError(input, 'Der Zeitraum muss zwei ISO-Daten im Format Start/Ende enthalten.');
+                return;
+            }
+            const start = parseIsoDate(parts[0]);
+            const end = parseIsoDate(parts[1]);
+            if (!start || !end) {
+                setLiveError(input, 'Bitte ISO-Daten im Format YYYY-MM-DD/YYYY-MM-DD verwenden.');
+                return;
+            }
+            setLiveError(input, compareDate(start, end) <= 0 ? '' : 'Der Zeitraum darf nicht vor seinem Start enden.');
+        }
+
+        function validateRuleSection(section) {
+            const inputMask = section.querySelector('[data-rule-input-mask]');
+            const inputPattern = section.querySelector('[data-rule-input-pattern]');
+            const outputMask = section.querySelector('[data-rule-output-mask]');
+            const outputPattern = section.querySelector('[data-rule-output-pattern]');
+
+            compare(inputPattern, inputMask, 'Eingabemuster und Eingabemaske müssen gleich lang sein.');
+            compare(outputPattern, outputMask, 'Ausgabemuster und Ausgabemaske müssen gleich lang sein.');
+
+            section.querySelectorAll('[data-test-row]').forEach((row) => {
+                compareGenerated(row.querySelector('[data-test-tokenized]'), inputMask, 'Der tokenisierte Testwert muss zur Eingabemaske gleich lang sein.');
+                compareGenerated(row.querySelector('[data-test-output]'), outputMask, 'Die erwartete Ausgabe muss zur Ausgabemaske gleich lang sein.');
+                validateTimespan(row.querySelector('[data-test-timespan]'));
+            });
+        }
+
+        function validateAll() {
+            document.querySelectorAll('[data-rule-section]').forEach(validateRuleSection);
+        }
+
+        document.addEventListener('input', (event) => {
+            const section = event.target.closest('[data-rule-section]');
+            if (section) {
+                validateRuleSection(section);
+            }
+        });
+
+        document.querySelectorAll('[data-edit-test-row]').forEach((button) => {
+            button.addEventListener('click', () => {
+                button.closest('[data-test-row]')?.querySelector('input:not([type="hidden"])')?.focus();
+            });
+        });
+
+        validateAll();
+    })();
+</script>
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

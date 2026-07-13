@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${title}">Löschen</title>
+    <base th:href="@{/}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
+</head>
+<body class="bg-body-tertiary">
+<nav class="navbar navbar-expand-lg bg-body border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
+            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
+        </a>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <section class="bg-body border rounded p-3 p-lg-4">
+        <h1 class="h4 mb-3" th:text="${title}">Löschen</h1>
+        <p class="mb-4" th:text="${message}">Soll dieser Datensatz wirklich gelöscht werden?</p>
+        <div class="d-flex gap-2">
+            <a class="btn btn-outline-secondary" th:href="@{${cancelUrl}}">
+                Abbrechen
+            </a>
+            <form th:action="@{${deleteUrl}}" method="post">
+                <button type="submit" class="btn btn-danger">
+                    <i class="bi bi-trash" aria-hidden="true"></i>
+                    Löschen
+                </button>
+            </form>
+        </div>
+    </section>
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>

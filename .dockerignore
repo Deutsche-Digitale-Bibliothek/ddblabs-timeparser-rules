@@ -1,0 +1,10 @@
+.git
+.github
+.vscode
+.agents
+.codex
+target
+*.sqlite
+*.db
+*.log
+README.md

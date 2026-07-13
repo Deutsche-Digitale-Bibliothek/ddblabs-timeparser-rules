@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anmelden</title>
+    <base th:href="@{/}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap/css/bootstrap.min.css}">
+    <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
+</head>
+<body class="bg-body-tertiary">
+<main class="container py-5">
+    <div class="row justify-content-center">
+        <div class="col-sm-10 col-md-7 col-lg-5 col-xl-4">
+            <section class="bg-body border rounded p-4">
+                <div class="mb-4">
+                    <div class="navbar-brand fw-semibold mb-2">
+                        <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
+                    </div>
+                    <h1 class="h4 mb-1">Anmelden</h1>
+                    <p class="text-secondary mb-0">Bitte melden Sie sich an, um Regeln und Platzhalter zu bearbeiten.</p>
+                </div>
+
+                <div th:if="${param.error}" class="alert alert-danger" role="alert">
+                    Benutzername oder Passwort ist nicht korrekt.
+                </div>
+                <div th:if="${param.logout}" class="alert alert-success" role="alert">
+                    Sie wurden abgemeldet.
+                </div>
+
+                <form th:action="@{/login}" method="post">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">Benutzername</label>
+                        <input id="username" name="username" type="text" class="form-control" autocomplete="username" autofocus>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Passwort</label>
+                        <input id="password" name="password" type="password" class="form-control" autocomplete="current-password">
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">Anmelden</button>
+                </form>
+            </section>
+        </div>
+    </div>
+</main>
+
+<script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
+</body>
+</html>
