@@ -1,4 +1,4 @@
-# DDB Labs Timeparser Rules
+# DDBlabs Timeparser Rules
 
 Webanwendung zum Anzeigen, Bearbeiten, Prüfen und Exportieren von Timeparser-Regeln und den dazugehörigen Tests.
 

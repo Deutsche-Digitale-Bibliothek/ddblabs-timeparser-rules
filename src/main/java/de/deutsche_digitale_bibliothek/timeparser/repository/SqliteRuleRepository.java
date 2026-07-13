@@ -11,6 +11,7 @@ import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -61,6 +62,7 @@ public class SqliteRuleRepository {
     private final Path rulesFile;
     private final Path testsFile;
 
+    @Autowired
     public SqliteRuleRepository(JdbcTemplate jdbcTemplate,
                                 @Value("${timeparser.csv.rules-path:rules.csv}") String rulesFile,
                                 @Value("${timeparser.csv.tests-path:tests.csv}") String testsFile) {
