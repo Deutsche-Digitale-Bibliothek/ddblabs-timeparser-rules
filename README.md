@@ -174,6 +174,12 @@ Die wichtigsten Einstellungen sind per Environment-Variable konfigurierbar:
 | --- | --- | --- |
 | `TIMEPARSER_SERVER_PORT` | `8080` | HTTP-Port der Anwendung |
 | `TIMEPARSER_URL_PREFIX` | `/app/timeparser-rules` | Context Path, z. B. für `domain.de/app/timeparser-rules` |
+| `TIMEPARSER_FORWARD_HEADERS_STRATEGY` | `native` | Auswertung von Reverse-Proxy-Headern; für Tomcat im Container ist `native` empfohlen, alternativ `framework` |
+| `TIMEPARSER_PROXY_PROTOCOL_HEADER` | `X-Forwarded-Proto` | Header, aus dem das öffentliche Schema (`https`) gelesen wird |
+| `TIMEPARSER_PROXY_PROTOCOL_HEADER_HTTPS_VALUE` | `https` | Wert, der als HTTPS-Verbindung erkannt wird |
+| `TIMEPARSER_PROXY_HOST_HEADER` | `X-Forwarded-Host` | Header für den öffentlichen Hostnamen |
+| `TIMEPARSER_PROXY_PORT_HEADER` | `X-Forwarded-Port` | Header für den öffentlichen Port |
+| `TIMEPARSER_PROXY_REMOTE_IP_HEADER` | `X-Forwarded-For` | Header für die ursprüngliche Client-IP |
 | `TIMEPARSER_DATABASE_PATH` | `timeparser-rules.sqlite` | Speicherort der SQLite-Datei |
 | `TIMEPARSER_RULES_CSV_PATH` | `rules.csv` | Optionaler Pfad zur privaten `rules.csv` für den initialen Import |
 | `TIMEPARSER_TESTS_CSV_PATH` | `tests.csv` | Optionaler Pfad zur privaten `tests.csv` für den initialen Import |
@@ -258,4 +264,6 @@ Veröffentlichte Tags werden aus Branch, Git-Tag und Commit-SHA erzeugt. Auf dem
 - In produktionsnahen Umgebungen sollten `TIMEPARSER_SECURITY_USERNAME` und `TIMEPARSER_SECURITY_PASSWORD` immer gesetzt werden.
 - Die SQLite-Datei sollte auf ein persistentes Volume gelegt werden.
 - Der URL-Prefix ist bereits auf `/app/timeparser-rules` ausgelegt und kann hinter einem Reverse Proxy unverändert verwendet werden.
+- Hinter einem TLS-terminierenden Reverse Proxy muss der Proxy mindestens `X-Forwarded-Proto: https` setzen. Sinnvoll sind außerdem `X-Forwarded-Host` und `X-Forwarded-Port`, damit Login- und Logout-Redirects auf die öffentliche HTTPS-URL zeigen.
+- Falls die Header trotz korrekter Proxy-Konfiguration nicht greifen, kann `TIMEPARSER_FORWARD_HEADERS_STRATEGY=framework` gesetzt werden. Diese Variante wertet die Forwarded Headers in Spring statt in Tomcat aus.
 - HTTP-Kompression ist für HTML, CSS, JavaScript, JSON, XML und CSV aktiviert.
