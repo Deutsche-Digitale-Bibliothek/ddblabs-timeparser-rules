@@ -22,7 +22,6 @@ public record PlausibilityWarning(
             String label,
             String value,
             String visibleValue,
-            String codePoints,
             int length
     ) {
     }

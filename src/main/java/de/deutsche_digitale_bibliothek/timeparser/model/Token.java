@@ -17,7 +17,6 @@ public record Token(
                 .map(value -> new ValueDisplay(
                         value,
                         visibleWhitespace(value),
-                        codePoints(value),
                         value.codePointCount(0, value.length())
                 ))
                 .toList();
@@ -31,17 +30,9 @@ public record Token(
                 .replace("\t", "⇥");
     }
 
-    private static String codePoints(String value) {
-        return value.codePoints()
-                .mapToObj(codePoint -> "U+" + String.format("%04X", codePoint))
-                .reduce((left, right) -> left + " " + right)
-                .orElse("leer");
-    }
-
     public record ValueDisplay(
             String value,
             String visibleValue,
-            String codePoints,
             int length
     ) {
     }

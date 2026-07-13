@@ -237,7 +237,7 @@
                         <th scope="col">Tokenisiert</th>
                         <th scope="col">Ausgabe</th>
                         <th scope="col">Zeitraum</th>
-                        <th scope="col" class="text-end">Aktion</th>
+                        <th scope="col" class="text-end text-nowrap position-sticky end-0 bg-body-tertiary z-1">Aktion</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -280,7 +280,7 @@
                                    th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}">
                             <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}"></div>
                         </td>
-                        <td class="text-end">
+                        <td class="text-end text-nowrap position-sticky end-0 bg-body z-1">
                             <div class="d-flex justify-content-end gap-2">
                                 <button type="button"
                                         class="btn btn-sm btn-outline-secondary"

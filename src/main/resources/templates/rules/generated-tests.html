@@ -35,7 +35,7 @@
                 <span th:text="${#lists.size(tests)}">0</span> generierte Tests
             </p>
         </div>
-        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/rules/export}">
+        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/generated-tests/export}">
             <i class="bi bi-download" aria-hidden="true"></i>
             CSV herunterladen
         </a>
@@ -115,10 +115,10 @@
         }
     };
     new DataTable('#generatedTestsTable', {
-        pageLength: 250,
+        pageLength: 50,
         lengthMenu: [
-            [100, 250, 1000, -1],
-            ['100', '250', '1000', 'Alle']
+            [50, 100, 250, 1000, -1],
+            ['50', '100', '250', '1000', 'Alle']
         ],
         language
     });

@@ -43,7 +43,7 @@
         <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-2">
             <a class="btn btn-outline-primary" th:href="@{/rules/export}">
                 <i class="bi bi-download" aria-hidden="true"></i>
-                CSV herunterladen
+                ZIP herunterladen
             </a>
             <a class="btn btn-primary" th:href="@{/rules/new}">
                 <i class="bi bi-plus-lg" aria-hidden="true"></i>
@@ -61,7 +61,7 @@
                 <th scope="col">Beschreibung</th>
                 <th scope="col" class="text-end">Regeln</th>
                 <th scope="col" class="text-end">Tests</th>
-                <th scope="col" class="text-end">Aktion</th>
+                <th scope="col" class="text-end text-nowrap position-sticky end-0 bg-body-tertiary z-1">Aktion</th>
             </tr>
             </thead>
             <tbody>
@@ -79,7 +79,7 @@
                        th:href="@{/rules/{id}(id=${group.id})}"
                        th:text="${group.testCount}">1</a>
                 </td>
-                <td class="text-end">
+                <td class="text-end text-nowrap position-sticky end-0 bg-body z-1">
                     <div class="btn-group btn-group-sm" role="group" aria-label="Aktionen">
                         <a class="btn btn-outline-primary" th:href="@{/rules/{id}(id=${group.id})}">
                             Bearbeiten
@@ -124,10 +124,10 @@
         }
     };
     new DataTable('#groupsTable', {
-        pageLength: 250,
+        pageLength: 50,
         lengthMenu: [
-            [100, 250, 1000, -1],
-            ['100', '250', '1000', 'Alle']
+            [50, 100, 250, 1000, -1],
+            ['50', '100', '250', '1000', 'Alle']
         ],
         language,
         columnDefs: [{orderable: false, searchable: false, targets: 5}],

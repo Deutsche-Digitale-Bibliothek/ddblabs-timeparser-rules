@@ -30,8 +30,8 @@ public class CsvExportService {
         try {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try (ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
-                writeZipEntry(zipOutputStream, "rules.csv", rulesCsv(rules));
-                writeZipEntry(zipOutputStream, "tests.csv", testsCsv(tests));
+                writeZipEntry(zipOutputStream, "rules.csv", rulesCsvText(rules));
+                writeZipEntry(zipOutputStream, "tests.csv", testsCsvText(tests));
             }
             return outputStream.toByteArray();
         } catch (IOException exception) {
@@ -47,13 +47,29 @@ public class CsvExportService {
         }
     }
 
+    public byte[] rulesCsv(List<Rule> rules) {
+        try {
+            return rulesCsvText(rules).getBytes(StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new CsvRepositoryException("Regel-CSV konnte nicht erstellt werden.", exception);
+        }
+    }
+
+    public byte[] testsCsv(List<RuleTest> tests) {
+        try {
+            return testsCsvText(tests).getBytes(StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new CsvRepositoryException("Test-CSV konnte nicht erstellt werden.", exception);
+        }
+    }
+
     private void writeZipEntry(ZipOutputStream output, String fileName, String csvText) throws IOException {
         output.putNextEntry(new ZipEntry(fileName));
         output.write(csvText.getBytes(StandardCharsets.UTF_8));
         output.closeEntry();
     }
 
-    private String rulesCsv(List<Rule> rules) throws IOException {
+    private String rulesCsvText(List<Rule> rules) throws IOException {
         try (StringWriter writer = new StringWriter();
              CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(RULE_HEADERS).get())) {
             for (Rule rule : rules) {
@@ -69,7 +85,7 @@ public class CsvExportService {
         }
     }
 
-    private String testsCsv(List<RuleTest> tests) throws IOException {
+    private String testsCsvText(List<RuleTest> tests) throws IOException {
         try (StringWriter writer = new StringWriter();
              CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(TEST_HEADERS).get())) {
             for (RuleTest test : tests) {

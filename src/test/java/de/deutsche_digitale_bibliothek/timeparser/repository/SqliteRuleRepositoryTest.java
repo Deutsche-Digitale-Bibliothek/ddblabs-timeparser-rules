@@ -4,6 +4,8 @@ import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
 import de.deutsche_digitale_bibliothek.timeparser.model.RulePreview;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleTest;
 import de.deutsche_digitale_bibliothek.timeparser.web.RuleGroupForm;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -11,6 +13,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,8 +57,37 @@ class SqliteRuleRepositoryTest {
         repository.createGroup(form);
 
         String testsCsv = zipEntry(repository.rulesAndTestsZip(), "tests.csv");
+        String standaloneTestsCsv = new String(repository.testsCsv(), StandardCharsets.UTF_8);
 
         assertThat(testsCsv).contains("um 800", "ca. 800", "circa 800", "zirka 800", "etwa 800");
+        assertThat(standaloneTestsCsv)
+                .startsWith("id,for,input,tokenized,output,timespan")
+                .contains("um 800", "ca. 800", "circa 800", "zirka 800", "etwa 800");
+    }
+
+    @Test
+    void exportsGeneratedRulesAsStandaloneCsv() throws IOException {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm form = group("Exportierte Regeln");
+        RuleGroupForm.RuleVariantForm rule = rule("###", "JJJ", "0###", "0JJJ");
+        rule.getTests().add(test("800", "800", "0800", "0790-01-01/0810-12-31"));
+        form.getRules().add(rule);
+        repository.createGroup(form);
+
+        String rulesCsv = new String(repository.rulesCsv(), StandardCharsets.UTF_8);
+
+        try (CSVParser parser = CSVFormat.DEFAULT.builder()
+                .setHeader()
+                .setSkipHeaderRecord(true)
+                .get()
+                .parse(new StringReader(rulesCsv))) {
+            assertThat(parser.getRecords().getFirst().toMap()).containsAllEntriesOf(java.util.Map.of(
+                    "inputMask", "###",
+                    "inputPattern", "JJJ",
+                    "outputMask", "0###",
+                    "outputPattern", "0JJJ"
+            ));
+        }
     }
 
     @Test

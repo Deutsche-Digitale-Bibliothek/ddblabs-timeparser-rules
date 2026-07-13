@@ -35,7 +35,7 @@
                 <span th:text="${#lists.size(rules)}">0</span> generierte Regeln
             </p>
         </div>
-        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/rules/export}">
+        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/generated-rules/export}">
             <i class="bi bi-download" aria-hidden="true"></i>
             CSV herunterladen
         </a>
@@ -113,10 +113,10 @@
         }
     };
     new DataTable('#generatedRulesTable', {
-        pageLength: 250,
+        pageLength: 50,
         lengthMenu: [
-            [100, 250, 1000, -1],
-            ['100', '250', '1000', 'Alle']
+            [50, 100, 250, 1000, -1],
+            ['50', '100', '250', '1000', 'Alle']
         ],
         language
     });

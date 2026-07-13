@@ -351,6 +351,14 @@ public class SqliteRuleRepository {
         return csvExportService.rulesAndTestsZip(exportedRules, exportTests(exportedRules));
     }
 
+    public byte[] rulesCsv() {
+        return csvExportService.rulesCsv(exportRules());
+    }
+
+    public byte[] testsCsv() {
+        return csvExportService.testsCsv(exportTests());
+    }
+
     public byte[] tokensCsv() {
         return csvExportService.tokensCsv(findTokens());
     }
@@ -828,6 +836,13 @@ public class SqliteRuleRepository {
                 .toList();
     }
 
+    private List<RuleTest> exportTests() {
+        Set<String> exportedSignatures = new LinkedHashSet<>();
+        return generatedTests().stream()
+                .filter(test -> exportedSignatures.add(testSignature(test)))
+                .toList();
+    }
+
     private PlausibilityWarning.PlausibilityEntry plausibilityEntry(GeneratedRuleRow row) {
         return new PlausibilityWarning.PlausibilityEntry(
                 row.rule().getId(),
@@ -883,7 +898,6 @@ public class SqliteRuleRepository {
                 label,
                 safeValue,
                 visibleWhitespace(safeValue),
-                codePoints(safeValue),
                 safeValue.codePointCount(0, safeValue.length())
         );
     }
@@ -896,13 +910,6 @@ public class SqliteRuleRepository {
                 .replace("\t", "⇥")
                 .replace("\r", "⏎")
                 .replace("\n", "↵");
-    }
-
-    private String codePoints(String value) {
-        return value.codePoints()
-                .mapToObj(codePoint -> "U+" + String.format("%04X", codePoint))
-                .reduce((left, right) -> left + " " + right)
-                .orElse("leer");
     }
 
     private String generatedId(String baseId, int expansionIndex, int expansionCount, Set<String> usedIds) {

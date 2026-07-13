@@ -2,7 +2,6 @@ package de.deutsche_digitale_bibliothek.timeparser.web;
 
 import de.deutsche_digitale_bibliothek.timeparser.repository.SqliteRuleRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
@@ -10,15 +9,17 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 
 /**
- * Liefert Listen, Prüfergebnisse und den CSV-Export.
+ * Liefert Listen, Prüfergebnisse sowie die CSV- und ZIP-Exporte.
  */
 @Controller
 @RequiredArgsConstructor
 public class RuleOverviewController {
 
     private static final MediaType ZIP = MediaType.parseMediaType("application/zip");
+    private static final MediaType CSV = MediaType.parseMediaType("text/csv; charset=UTF-8");
 
     private final SqliteRuleRepository repository;
+    private final DownloadResponseFactory downloadResponseFactory;
 
     @GetMapping("/rules")
     public String listRules(Model model) {
@@ -45,15 +46,22 @@ public class RuleOverviewController {
     }
 
     @GetMapping("/rules/export")
-    public ResponseEntity<byte[]> exportCsv() {
-        return download(repository.rulesAndTestsZip(), "timeparser-rules-csv.zip", ZIP);
+    public ResponseEntity<byte[]> exportPackage() {
+        return downloadResponseFactory.download(
+                repository.rulesAndTestsZip(),
+                "timeparser-rules-complete",
+                "zip",
+                ZIP
+        );
     }
 
-    private ResponseEntity<byte[]> download(byte[] content, String filename, MediaType mediaType) {
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentLength(content.length)
-                .contentType(mediaType)
-                .body(content);
+    @GetMapping("/generated-rules/export")
+    public ResponseEntity<byte[]> exportRules() {
+        return downloadResponseFactory.download(repository.rulesCsv(), "timeparser-rules", "csv", CSV);
+    }
+
+    @GetMapping("/generated-tests/export")
+    public ResponseEntity<byte[]> exportTests() {
+        return downloadResponseFactory.download(repository.testsCsv(), "timeparser-tests", "csv", CSV);
     }
 }

@@ -3,7 +3,6 @@ package de.deutsche_digitale_bibliothek.timeparser.web;
 import de.deutsche_digitale_bibliothek.timeparser.repository.SqliteRuleRepository;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +26,7 @@ public class TokenController {
     private static final MediaType CSV = MediaType.parseMediaType("text/csv; charset=UTF-8");
 
     private final SqliteRuleRepository repository;
+    private final DownloadResponseFactory downloadResponseFactory;
 
     @GetMapping("/tokens")
     public String tokens(Model model) {
@@ -37,7 +37,7 @@ public class TokenController {
 
     @GetMapping("/tokens/export")
     public ResponseEntity<byte[]> exportTokens() {
-        return download(repository.tokensCsv(), "tokens.csv", CSV);
+        return downloadResponseFactory.download(repository.tokensCsv(), "timeparser-tokens", "csv", CSV);
     }
 
     @GetMapping("/tokens/{tokenId}/edit")
@@ -98,11 +98,4 @@ public class TokenController {
         }
     }
 
-    private ResponseEntity<byte[]> download(byte[] content, String filename, MediaType mediaType) {
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentLength(content.length)
-                .contentType(mediaType)
-                .body(content);
-    }
 }
