@@ -1,5 +1,7 @@
 package de.deutsche_digitale_bibliothek.timeparser.repository;
 
+import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
+import de.deutsche_digitale_bibliothek.timeparser.model.RulePreview;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleTest;
 import de.deutsche_digitale_bibliothek.timeparser.web.RuleGroupForm;
 import org.junit.jupiter.api.Test;
@@ -9,9 +11,9 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.zip.ZipInputStream;
 
@@ -104,7 +106,8 @@ class SqliteRuleRepositoryTest {
         SqliteRuleRepository repository = new SqliteRuleRepository(
                 new JdbcTemplate(dataSource),
                 tempDir.resolve("missing-rules.csv"),
-                tempDir.resolve("missing-tests.csv")
+                tempDir.resolve("missing-tests.csv"),
+                new CsvExportService()
         );
 
         repository.initialize();
@@ -113,12 +116,46 @@ class SqliteRuleRepositoryTest {
         assertThat(repository.findTokens()).isNotEmpty();
     }
 
+    @Test
+    void createsPreviewInOneConsistentResult() {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm form = group("Gemeinsame Vorschau");
+        RuleGroupForm.RuleVariantForm rule = rule("~aprox ###", "~aprox JJJ", "um 0###", "um 0JJJ");
+        rule.getTests().add(test("~aprox 800", "~aprox 800", "um 0800", "0790-01-01/0810-12-31"));
+        form.getRules().add(rule);
+
+        RulePreview preview = repository.preview(form);
+
+        assertThat(preview.rules()).isEqualTo(repository.previewRules(form));
+        assertThat(preview.tests()).isEqualTo(repository.previewTests(form));
+    }
+
+    @Test
+    void loadsEditableTestsWithGroupForm() {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm form = group("Bearbeitbare Tests");
+        RuleGroupForm.RuleVariantForm rule = rule("###", "JJJ", "0###", "0JJJ");
+        rule.getTests().add(test("800", "800", "0800", "0790-01-01/0810-12-31"));
+        form.getRules().add(rule);
+        long groupId = repository.createGroup(form);
+
+        RuleGroupForm loaded = repository.findGroupForm(groupId);
+        loaded.getRules().getFirst().getTests().add(new RuleGroupForm.TestForm());
+
+        assertThat(loaded.getRules().getFirst().getTests()).hasSize(2);
+    }
+
     private SqliteRuleRepository repository() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource("jdbc:sqlite:" + tempDir.resolve("rules.sqlite"));
         Path rulesCsv = tempDir.resolve("rules.csv");
         Path testsCsv = tempDir.resolve("tests.csv");
         writeSeedCsv(rulesCsv, testsCsv);
-        SqliteRuleRepository repository = new SqliteRuleRepository(new JdbcTemplate(dataSource), rulesCsv, testsCsv);
+        SqliteRuleRepository repository = new SqliteRuleRepository(
+                new JdbcTemplate(dataSource),
+                rulesCsv,
+                testsCsv,
+                new CsvExportService()
+        );
         repository.initialize();
         return repository;
     }

@@ -1,28 +1,28 @@
 package de.deutsche_digitale_bibliothek.timeparser.repository;
 
+import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
+import de.deutsche_digitale_bibliothek.timeparser.model.PlausibilityWarning;
 import de.deutsche_digitale_bibliothek.timeparser.model.Rule;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleGroupSummary;
+import de.deutsche_digitale_bibliothek.timeparser.model.RulePreview;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleTest;
-import de.deutsche_digitale_bibliothek.timeparser.model.PlausibilityWarning;
 import de.deutsche_digitale_bibliothek.timeparser.model.Token;
 import de.deutsche_digitale_bibliothek.timeparser.web.RuleGroupForm;
 import de.deutsche_digitale_bibliothek.timeparser.web.TokenForm;
 import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVPrinter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.Reader;
-import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -34,13 +34,12 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
 /**
  * Repository für Regelgruppen, generierte Regeln, Tests, Tokens und CSV-Import/-Export.
@@ -53,26 +52,30 @@ import java.util.zip.ZipOutputStream;
 public class SqliteRuleRepository {
 
     private static final String[] RULE_HEADERS = {"id", "inputMask", "inputPattern", "outputMask", "outputPattern"};
-    private static final String[] TEST_HEADERS = {"id", "for", "input", "tokenized", "output", "timespan"};
-    private static final String[] TOKEN_HEADERS = {"name", "description", "value", "position"};
     private static final Pattern NUMERIC_SUFFIX = Pattern.compile("^(\\D*)(\\d+)$");
     private static final Pattern TOKEN_REFERENCE = Pattern.compile("~([A-Za-z][A-Za-z0-9_-]*)");
 
     private final JdbcTemplate jdbcTemplate;
     private final Path rulesFile;
     private final Path testsFile;
+    private final CsvExportService csvExportService;
 
     @Autowired
     public SqliteRuleRepository(JdbcTemplate jdbcTemplate,
                                 @Value("${timeparser.csv.rules-path:rules.csv}") String rulesFile,
-                                @Value("${timeparser.csv.tests-path:tests.csv}") String testsFile) {
-        this(jdbcTemplate, Path.of(rulesFile), Path.of(testsFile));
+                                @Value("${timeparser.csv.tests-path:tests.csv}") String testsFile,
+                                CsvExportService csvExportService) {
+        this(jdbcTemplate, Path.of(rulesFile), Path.of(testsFile), csvExportService);
     }
 
-    SqliteRuleRepository(JdbcTemplate jdbcTemplate, Path rulesFile, Path testsFile) {
+    SqliteRuleRepository(JdbcTemplate jdbcTemplate,
+                         Path rulesFile,
+                         Path testsFile,
+                         CsvExportService csvExportService) {
         this.jdbcTemplate = jdbcTemplate;
         this.rulesFile = rulesFile;
         this.testsFile = testsFile;
+        this.csvExportService = csvExportService;
     }
 
     @PostConstruct
@@ -118,6 +121,7 @@ public class SqliteRuleRepository {
         form.setName((String) group.get("name"));
         form.setDescription((String) group.get("description"));
 
+        Map<String, List<RuleGroupForm.TestForm>> testsByRuleId = findTestFormsForGroup(groupId);
         List<RuleGroupForm.RuleVariantForm> rules = jdbcTemplate.query("""
                 SELECT id, input_mask, input_pattern, output_mask, output_pattern
                 FROM rules
@@ -130,7 +134,7 @@ public class SqliteRuleRepository {
             rule.setInputPattern(rs.getString("input_pattern"));
             rule.setOutputMask(rs.getString("output_mask"));
             rule.setOutputPattern(rs.getString("output_pattern"));
-            rule.setTests(findTestForms(rule.getId()));
+            rule.setTests(new ArrayList<>(testsByRuleId.getOrDefault(rule.getId(), List.of())));
             return rule;
         }, groupId);
         form.setRules(rules);
@@ -219,14 +223,14 @@ public class SqliteRuleRepository {
     }
 
     public List<Rule> generatedRules() {
-        return generatedRuleRows((Long) null).stream()
+        return generatedRuleRows((Long) null, tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, this::compareIds))
                 .toList();
     }
 
     public List<Rule> generatedRulesForGroup(long groupId) {
-        return generatedRuleRows(groupId).stream()
+        return generatedRuleRows(groupId, tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, this::compareIds))
                 .toList();
@@ -241,14 +245,25 @@ public class SqliteRuleRepository {
     }
 
     public List<Rule> previewRules(RuleGroupForm form) {
-        return generatedRuleRows(ruleTemplates(form)).stream()
+        return generatedRuleRows(ruleTemplates(form), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, this::compareIds))
                 .toList();
     }
 
     public List<RuleTest> previewTests(RuleGroupForm form) {
-        return generatedTests(ruleTemplates(form), testTemplates(form));
+        return generatedTests(ruleTemplates(form), testTemplates(form), tokenValuesByName());
+    }
+
+    public RulePreview preview(RuleGroupForm form) {
+        Map<String, List<String>> tokenValues = tokenValuesByName();
+        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates(form), tokenValues);
+        List<Rule> rules = generatedRuleRows.stream()
+                .map(GeneratedRuleRow::rule)
+                .sorted(Comparator.comparing(Rule::getId, this::compareIds))
+                .toList();
+        List<RuleTest> tests = generateTestsForRows(generatedRuleRows, testTemplates(form), tokenValues);
+        return new RulePreview(rules, tests);
     }
 
     public List<PlausibilityWarning> plausibilityWarnings() {
@@ -263,6 +278,7 @@ public class SqliteRuleRepository {
      * Sucht Token-Referenzen in einem Formular, bevor gespeichert wird.
      */
     public List<String> unknownTokenNames(RuleGroupForm form) {
+        Map<String, List<String>> tokenValues = tokenValuesByName();
         Set<String> tokenNames = new LinkedHashSet<>();
         for (RuleGroupForm.RuleVariantForm rule : form.getRules()) {
             collectTokenNames(tokenNames, rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
@@ -271,19 +287,25 @@ public class SqliteRuleRepository {
             }
         }
         return tokenNames.stream()
-                .filter(tokenName -> tokenValuesForName(tokenName).isEmpty())
+                .filter(tokenName -> tokenValuesForName(tokenName, tokenValues).isEmpty())
                 .toList();
     }
 
     private List<PlausibilityWarning> plausibilityWarnings(Long groupId) {
+        Map<String, List<String>> tokenValues = tokenValuesByName();
+        List<RuleTemplate> ruleTemplates = ruleTemplates(groupId);
         List<PlausibilityWarning> warnings = new ArrayList<>();
-        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(groupId);
+        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates, tokenValues);
         Map<String, GeneratedRuleRow> rowsByRuleId = new LinkedHashMap<>();
         for (GeneratedRuleRow row : generatedRuleRows) {
             rowsByRuleId.put(row.rule().getId(), row);
         }
         addDuplicateRuleWarnings(warnings, generatedRuleRows);
-        addDuplicateTestWarnings(warnings, groupId == null ? generatedTests() : generatedTestsForGroup(groupId), rowsByRuleId);
+        addDuplicateTestWarnings(
+                warnings,
+                generateTestsForRows(generatedRuleRows, testTemplates(groupId), tokenValues),
+                rowsByRuleId
+        );
         return warnings;
     }
 
@@ -325,28 +347,16 @@ public class SqliteRuleRepository {
     }
 
     public byte[] rulesAndTestsZip() {
-        try {
-            List<Rule> exportedRules = exportRules();
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            try (ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
-                writeZipEntry(zipOutputStream, "rules.csv", rulesCsv(exportedRules));
-                writeZipEntry(zipOutputStream, "tests.csv", testsCsv(exportedRules));
-            }
-            return outputStream.toByteArray();
-        } catch (IOException e) {
-            throw new CsvRepositoryException("CSV-Export konnte nicht erstellt werden.", e);
-        }
+        List<Rule> exportedRules = exportRules();
+        return csvExportService.rulesAndTestsZip(exportedRules, exportTests(exportedRules));
     }
 
     public byte[] tokensCsv() {
-        try {
-            return tokenCsvText().getBytes(StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new CsvRepositoryException("Token-CSV konnte nicht erstellt werden.", e);
-        }
+        return csvExportService.tokensCsv(findTokens());
     }
 
     public List<Token> findTokens() {
+        Map<Long, List<String>> valuesByTokenId = tokenValuesByTokenId();
         return jdbcTemplate.query("""
                 SELECT id, name, description
                 FROM tokens
@@ -355,7 +365,7 @@ public class SqliteRuleRepository {
                 rs.getLong("id"),
                 rs.getString("name"),
                 rs.getString("description"),
-                tokenValues(rs.getLong("id"))
+                valuesByTokenId.getOrDefault(rs.getLong("id"), List.of())
         ));
     }
 
@@ -414,29 +424,40 @@ public class SqliteRuleRepository {
         jdbcTemplate.update("DELETE FROM tokens WHERE id = ?", tokenId);
     }
 
-    private List<RuleGroupForm.TestForm> findTestForms(String ruleId) {
-        return jdbcTemplate.query("""
-                SELECT id, input, tokenized, output, timespan
-                FROM tests
-                WHERE rule_id = ?
-                ORDER BY position, id
-                """, (rs, rowNum) -> {
+    private Map<String, List<RuleGroupForm.TestForm>> findTestFormsForGroup(long groupId) {
+        Map<String, List<RuleGroupForm.TestForm>> testsByRuleId = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT t.id, t.rule_id, t.input, t.tokenized, t.output, t.timespan
+                FROM tests t
+                JOIN rules r ON r.id = t.rule_id
+                WHERE r.group_id = ?
+                ORDER BY r.position, r.id, t.position, t.id
+                """, rs -> {
             RuleGroupForm.TestForm test = new RuleGroupForm.TestForm();
             test.setId(rs.getString("id"));
             test.setInput(rs.getString("input"));
             test.setTokenized(rs.getString("tokenized"));
             test.setOutput(rs.getString("output"));
             test.setTimespan(rs.getString("timespan"));
-            return test;
-        }, ruleId);
+            testsByRuleId.computeIfAbsent(rs.getString("rule_id"), ignored -> new ArrayList<>()).add(test);
+        }, groupId);
+        return testsByRuleId;
     }
 
     private List<RuleTest> generatedTests(Long groupId) {
-        return generatedTests(ruleTemplates(groupId), testTemplates(groupId));
+        return generatedTests(ruleTemplates(groupId), testTemplates(groupId), tokenValuesByName());
     }
 
-    private List<RuleTest> generatedTests(List<RuleTemplate> ruleTemplates, List<RuleTestTemplate> tests) {
-        List<GeneratedRuleRow> generatedRules = generatedRuleRows(ruleTemplates);
+    private List<RuleTest> generatedTests(List<RuleTemplate> ruleTemplates,
+                                          List<RuleTestTemplate> tests,
+                                          Map<String, List<String>> tokenValuesByName) {
+        List<GeneratedRuleRow> generatedRules = generatedRuleRows(ruleTemplates, tokenValuesByName);
+        return generateTestsForRows(generatedRules, tests, tokenValuesByName);
+    }
+
+    private List<RuleTest> generateTestsForRows(List<GeneratedRuleRow> generatedRules,
+                                                List<RuleTestTemplate> tests,
+                                                Map<String, List<String>> tokenValuesByName) {
         Map<String, List<GeneratedRuleRow>> rulesByTemplateId = new LinkedHashMap<>();
         for (GeneratedRuleRow generatedRule : generatedRules) {
             rulesByTemplateId.computeIfAbsent(generatedRule.templateId(), key -> new ArrayList<>()).add(generatedRule);
@@ -448,7 +469,7 @@ public class SqliteRuleRepository {
             List<GeneratedTestCandidate> candidates = new ArrayList<>();
             List<GeneratedRuleRow> rows = rulesByTemplateId.getOrDefault(test.ruleId(), List.of());
             for (GeneratedRuleRow row : rows) {
-                for (Map<String, String> tokenValues : testTokenExpansions(test, row.tokenValues())) {
+                for (Map<String, String> tokenValues : testTokenExpansions(test, row.tokenValues(), tokenValuesByName)) {
                     String input = applyTokenValues(test.input(), tokenValues);
                     String tokenized = applyTestTokenizedTemplate(applyTokenValues(test.tokenized(), tokenValues), input);
                     if (!matchesInputMask(row.rule().getInputMask(), tokenized)) {
@@ -482,15 +503,16 @@ public class SqliteRuleRepository {
                 .toList();
     }
 
-    private List<GeneratedRuleRow> generatedRuleRows(Long groupId) {
-        return generatedRuleRows(ruleTemplates(groupId));
+    private List<GeneratedRuleRow> generatedRuleRows(Long groupId, Map<String, List<String>> tokenValuesByName) {
+        return generatedRuleRows(ruleTemplates(groupId), tokenValuesByName);
     }
 
-    private List<GeneratedRuleRow> generatedRuleRows(List<RuleTemplate> templates) {
+    private List<GeneratedRuleRow> generatedRuleRows(List<RuleTemplate> templates,
+                                                     Map<String, List<String>> tokenValuesByName) {
         Set<String> usedIds = new HashSet<>();
         List<GeneratedRuleRow> generatedRules = new ArrayList<>();
         for (RuleTemplate template : templates) {
-            List<Map<String, String>> expansions = tokenExpansions(template);
+            List<Map<String, String>> expansions = tokenExpansions(template, tokenValuesByName);
             for (int index = 0; index < expansions.size(); index++) {
                 Map<String, String> tokenValues = expansions.get(index);
                 String ruleId = generatedId(template.id(), index + 1, expansions.size(), usedIds);
@@ -609,7 +631,8 @@ public class SqliteRuleRepository {
         );
     }
 
-    private List<Map<String, String>> tokenExpansions(RuleTemplate template) {
+    private List<Map<String, String>> tokenExpansions(RuleTemplate template,
+                                                      Map<String, List<String>> tokenValuesByName) {
         Set<String> tokenNames = new LinkedHashSet<>();
         collectTokenNames(tokenNames, template.inputMask(), template.inputPattern(), template.outputMask(), template.outputPattern());
         if (tokenNames.isEmpty()) {
@@ -618,7 +641,7 @@ public class SqliteRuleRepository {
 
         List<Map.Entry<String, List<String>>> tokenValues = new ArrayList<>();
         for (String tokenName : tokenNames) {
-            List<String> values = tokenValuesForName(tokenName);
+            List<String> values = tokenValuesForName(tokenName, tokenValuesByName);
             if (values.isEmpty()) {
                 throw new CsvRepositoryException("Token ~" + tokenName + " ist nicht definiert.");
             }
@@ -630,7 +653,9 @@ public class SqliteRuleRepository {
         return expansions;
     }
 
-    private List<Map<String, String>> testTokenExpansions(RuleTestTemplate test, Map<String, String> ruleTokenValues) {
+    private List<Map<String, String>> testTokenExpansions(RuleTestTemplate test,
+                                                          Map<String, String> ruleTokenValues,
+                                                          Map<String, List<String>> tokenValuesByName) {
         Set<String> tokenNames = new LinkedHashSet<>();
         collectTokenNames(tokenNames, test.input(), test.tokenized(), test.output(), test.timespan());
 
@@ -639,7 +664,7 @@ public class SqliteRuleRepository {
             if (lookupTokenValue(ruleTokenValues, tokenName) != null) {
                 continue;
             }
-            List<String> values = tokenValuesForName(tokenName);
+            List<String> values = tokenValuesForName(tokenName, tokenValuesByName);
             if (values.isEmpty()) {
                 throw new CsvRepositoryException("Token ~" + tokenName + " ist nicht definiert.");
             }
@@ -1127,14 +1152,37 @@ public class SqliteRuleRepository {
         );
     }
 
-    private List<String> tokenValuesForName(String tokenName) {
-        return jdbcTemplate.queryForList("""
-                SELECT tv.value
-                FROM token_values tv
-                JOIN tokens t ON t.id = tv.token_id
-                WHERE LOWER(t.name) = LOWER(?)
-                ORDER BY tv.position, tv.value
-                """, String.class, canonicalTokenName(tokenName));
+    private Map<Long, List<String>> tokenValuesByTokenId() {
+        Map<Long, List<String>> valuesByTokenId = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT token_id, value
+                FROM token_values
+                ORDER BY token_id, position, value
+                """, (RowCallbackHandler) rs -> valuesByTokenId
+                .computeIfAbsent(rs.getLong("token_id"), ignored -> new ArrayList<>())
+                .add(rs.getString("value")));
+        return valuesByTokenId;
+    }
+
+    private Map<String, List<String>> tokenValuesByName() {
+        Map<String, List<String>> valuesByName = new LinkedHashMap<>();
+        jdbcTemplate.query("""
+                SELECT t.name, tv.value
+                FROM tokens t
+                JOIN token_values tv ON tv.token_id = t.id
+                ORDER BY t.name, tv.position, tv.value
+                """, (RowCallbackHandler) rs -> valuesByName
+                .computeIfAbsent(tokenLookupKey(rs.getString("name")), ignored -> new ArrayList<>())
+                .add(rs.getString("value")));
+        return valuesByName;
+    }
+
+    private List<String> tokenValuesForName(String tokenName, Map<String, List<String>> valuesByName) {
+        return valuesByName.getOrDefault(tokenLookupKey(tokenName), List.of());
+    }
+
+    private String tokenLookupKey(String tokenName) {
+        return canonicalTokenName(tokenName).toLowerCase(Locale.ROOT);
     }
 
     private String canonicalTokenName(String tokenName) {
@@ -1184,49 +1232,6 @@ public class SqliteRuleRepository {
                     record.get("timespan")
             )));
             return tests;
-        }
-    }
-
-    private void writeZipEntry(ZipOutputStream zipOutputStream, String fileName, String csvText) throws IOException {
-        ZipEntry entry = new ZipEntry(fileName);
-        zipOutputStream.putNextEntry(entry);
-        zipOutputStream.write(csvText.getBytes(StandardCharsets.UTF_8));
-        zipOutputStream.closeEntry();
-    }
-
-    private String rulesCsv(List<Rule> exportedRules) throws IOException {
-        try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(RULE_HEADERS).get())) {
-            for (Rule rule : exportedRules) {
-                printer.printRecord(rule.getId(), rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
-            }
-            return writer.toString();
-        }
-    }
-
-    private String testsCsv(List<Rule> exportedRules) throws IOException {
-        try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(TEST_HEADERS).get())) {
-            for (RuleTest test : exportTests(exportedRules)) {
-                printer.printRecord(test.getId(), test.getRuleId(), test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
-            }
-            return writer.toString();
-        }
-    }
-
-    private String tokenCsvText() throws IOException {
-        try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(TOKEN_HEADERS).get())) {
-            for (Token token : findTokens()) {
-                if (token.values().isEmpty()) {
-                    printer.printRecord(token.name(), token.description(), "", "");
-                    continue;
-                }
-                for (int index = 0; index < token.values().size(); index++) {
-                    printer.printRecord(token.name(), token.description(), token.values().get(index), index);
-                }
-            }
-            return writer.toString();
         }
     }
 
