@@ -11,6 +11,7 @@ import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -57,11 +58,19 @@ public class SqliteRuleRepository {
     private static final Pattern TOKEN_REFERENCE = Pattern.compile("~([A-Za-z][A-Za-z0-9_-]*)");
 
     private final JdbcTemplate jdbcTemplate;
-    private final Path rulesFile = Path.of("rules.csv");
-    private final Path testsFile = Path.of("tests.csv");
+    private final Path rulesFile;
+    private final Path testsFile;
 
-    public SqliteRuleRepository(JdbcTemplate jdbcTemplate) {
+    public SqliteRuleRepository(JdbcTemplate jdbcTemplate,
+                                @Value("${timeparser.csv.rules-path:rules.csv}") String rulesFile,
+                                @Value("${timeparser.csv.tests-path:tests.csv}") String testsFile) {
+        this(jdbcTemplate, Path.of(rulesFile), Path.of(testsFile));
+    }
+
+    SqliteRuleRepository(JdbcTemplate jdbcTemplate, Path rulesFile, Path testsFile) {
         this.jdbcTemplate = jdbcTemplate;
+        this.rulesFile = rulesFile;
+        this.testsFile = testsFile;
     }
 
     @PostConstruct
@@ -71,7 +80,7 @@ public class SqliteRuleRepository {
         createSchema();
         migrateTestsSchema();
         seedTokens();
-        if (countGroups() == 0) {
+        if (countGroups() == 0 && csvSeedFilesAvailable()) {
             importCsv();
         }
     }
@@ -963,6 +972,10 @@ public class SqliteRuleRepository {
     private int countGroups() {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM rule_groups", Integer.class);
         return count == null ? 0 : count;
+    }
+
+    private boolean csvSeedFilesAvailable() {
+        return Files.isRegularFile(rulesFile) && Files.isRegularFile(testsFile);
     }
 
     private void migrateTestsSchema() {

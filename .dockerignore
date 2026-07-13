@@ -7,4 +7,6 @@ target
 *.sqlite
 *.db
 *.log
+rules.csv
+tests.csv
 README.md

@@ -2,7 +2,7 @@
 
 Webanwendung zum Anzeigen, Bearbeiten, Prüfen und Exportieren von Timeparser-Regeln und den dazugehörigen Tests.
 
-Die Anwendung importiert beim ersten Start `rules.csv` und `tests.csv` in eine lokale SQLite-Datenbank. Danach wird in SQLite gearbeitet. Der CSV-Export erzeugt wieder einfache, umfangreiche CSV-Dateien für Regeln und Tests.
+Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale SQLite-Datenbank importieren. Danach wird in SQLite gearbeitet. Der CSV-Import ist optional: Sind die Seed-Dateien nicht vorhanden, startet die Anwendung mit leerer Regel-Datenbank und den Standard-Tokens. Der CSV-Export erzeugt wieder einfache, umfangreiche CSV-Dateien für Regeln und Tests.
 
 ## Funktionen
 
@@ -25,7 +25,7 @@ Die Anwendung importiert beim ersten Start `rules.csv` und `tests.csv` in eine l
 - **Persistenz:** SQLite über `sqlite-jdbc`
 - **CSV:** Apache Commons CSV
 
-Beim Start erzeugt die Anwendung das Datenbankschema, migriert ältere Datenbanken falls nötig, legt Standard-Tokens an und importiert die CSV-Dateien nur dann, wenn noch keine Regelgruppen vorhanden sind.
+Beim Start erzeugt die Anwendung das Datenbankschema, migriert ältere Datenbanken falls nötig, legt Standard-Tokens an und importiert die CSV-Dateien nur dann, wenn noch keine Regelgruppen vorhanden sind und beide konfigurierten Seed-Dateien existieren.
 
 ## Datenmodell
 
@@ -175,6 +175,8 @@ Die wichtigsten Einstellungen sind per Environment-Variable konfigurierbar:
 | `TIMEPARSER_SERVER_PORT` | `8080` | HTTP-Port der Anwendung |
 | `TIMEPARSER_URL_PREFIX` | `/app/timeparser-rules` | Context Path, z. B. für `domain.de/app/timeparser-rules` |
 | `TIMEPARSER_DATABASE_PATH` | `timeparser-rules.sqlite` | Speicherort der SQLite-Datei |
+| `TIMEPARSER_RULES_CSV_PATH` | `rules.csv` | Optionaler Pfad zur privaten `rules.csv` für den initialen Import |
+| `TIMEPARSER_TESTS_CSV_PATH` | `tests.csv` | Optionaler Pfad zur privaten `tests.csv` für den initialen Import |
 | `TIMEPARSER_LOG_LEVEL` | `INFO` | Root-Log-Level |
 | `TIMEPARSER_SPRING_LOG_LEVEL` | Wert von `TIMEPARSER_LOG_LEVEL` | Spring-spezifisches Log-Level |
 | `TIMEPARSER_SECURITY_USERNAME` | `admin` | Login-Benutzer |
@@ -185,10 +187,14 @@ Beispiel:
 ```bash
 TIMEPARSER_SERVER_PORT=18080 \
 TIMEPARSER_DATABASE_PATH=./data/timeparser-rules.sqlite \
+TIMEPARSER_RULES_CSV_PATH=./private/rules.csv \
+TIMEPARSER_TESTS_CSV_PATH=./private/tests.csv \
 TIMEPARSER_SECURITY_USERNAME=editor \
 TIMEPARSER_SECURITY_PASSWORD=secret \
 mvn spring-boot:run
 ```
+
+Die CSV-Dateien werden nur für den initialen Import einer leeren Datenbank benötigt. Tests und Container-Builds benötigen keine echten Projektdaten.
 
 ## Docker
 
@@ -217,7 +223,19 @@ Im Container liegt die SQLite-Datei standardmäßig unter:
 /data/timeparser-rules.sqlite
 ```
 
-Die CSV-Seed-Dateien werden ins Image gelegt und beim ersten Start importiert, falls die Datenbank noch leer ist.
+Das Docker-Image enthält keine `rules.csv` und keine `tests.csv`. Für einen privaten Erstimport können die Dateien zur Laufzeit als read-only Volume eingebunden und per ENV referenziert werden:
+
+```bash
+docker run --rm \
+  -p 8080:8080 \
+  -v timeparser-rules-data:/data \
+  -v /pfad/zu/privaten-csv:/seed:ro \
+  -e TIMEPARSER_RULES_CSV_PATH=/seed/rules.csv \
+  -e TIMEPARSER_TESTS_CSV_PATH=/seed/tests.csv \
+  -e TIMEPARSER_SECURITY_USERNAME=editor \
+  -e TIMEPARSER_SECURITY_PASSWORD=secret \
+  ddblabs-timeparser-rules
+```
 
 ## Container-Veröffentlichung
 

@@ -9,6 +9,7 @@ import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -84,11 +85,38 @@ class SqliteRuleRepositoryTest {
                 .contains("20000000 v. Chr.", "20000000 v.Chr.", "20000000 v. Chr", "20000000 v.Chr");
     }
 
+    @Test
+    void initializesWithoutCsvSeedFiles() {
+        DriverManagerDataSource dataSource = new DriverManagerDataSource("jdbc:sqlite:" + tempDir.resolve("empty-rules.sqlite"));
+        SqliteRuleRepository repository = new SqliteRuleRepository(
+                new JdbcTemplate(dataSource),
+                tempDir.resolve("missing-rules.csv"),
+                tempDir.resolve("missing-tests.csv")
+        );
+
+        repository.initialize();
+
+        assertThat(repository.findGroupSummaries()).isEmpty();
+        assertThat(repository.findTokens()).isNotEmpty();
+    }
+
     private SqliteRuleRepository repository() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource("jdbc:sqlite:" + tempDir.resolve("rules.sqlite"));
-        SqliteRuleRepository repository = new SqliteRuleRepository(new JdbcTemplate(dataSource));
+        Path rulesCsv = tempDir.resolve("rules.csv");
+        Path testsCsv = tempDir.resolve("tests.csv");
+        writeSeedCsv(rulesCsv, testsCsv);
+        SqliteRuleRepository repository = new SqliteRuleRepository(new JdbcTemplate(dataSource), rulesCsv, testsCsv);
         repository.initialize();
         return repository;
+    }
+
+    private void writeSeedCsv(Path rulesCsv, Path testsCsv) {
+        try {
+            Files.writeString(rulesCsv, "id,inputMask,inputPattern,outputMask,outputPattern\n", StandardCharsets.UTF_8);
+            Files.writeString(testsCsv, "id,for,input,tokenized,output,timespan\n", StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new IllegalStateException("Test-CSV-Dateien konnten nicht erzeugt werden.", e);
+        }
     }
 
     private RuleGroupForm group(String name) {

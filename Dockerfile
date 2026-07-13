@@ -8,7 +8,6 @@ COPY pom.xml ./
 RUN mvn -B -DskipTests dependency:go-offline
 
 COPY src ./src
-COPY rules.csv tests.csv ./
 RUN mvn -B clean package -DskipTests
 
 FROM eclipse-temurin:25-jre
@@ -21,7 +20,6 @@ RUN groupadd --system --gid 10001 app \
 WORKDIR /app
 
 COPY --from=build --chown=app:app /workspace/target/ddblabs-timeparser-rules-0.0.1-SNAPSHOT.jar /app/app.jar
-COPY --chown=app:app rules.csv tests.csv ./
 
 ENV TIMEPARSER_SERVER_PORT=8080
 ENV TIMEPARSER_URL_PREFIX=/app/timeparser-rules
