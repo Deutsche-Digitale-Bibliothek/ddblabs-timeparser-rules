@@ -185,6 +185,7 @@ Die wichtigsten Einstellungen sind per Environment-Variable konfigurierbar:
 | `TIMEPARSER_TESTS_CSV_PATH` | `tests.csv` | Optionaler Pfad zur privaten `tests.csv` für den initialen Import |
 | `TIMEPARSER_LOG_LEVEL` | `INFO` | Root-Log-Level |
 | `TIMEPARSER_SPRING_LOG_LEVEL` | Wert von `TIMEPARSER_LOG_LEVEL` | Spring-spezifisches Log-Level |
+| `TIMEPARSER_THYMELEAF_CACHE` | `true` | Template-Cache; in Produktion/OpenShift aktiv lassen |
 | `TIMEPARSER_SECURITY_USERNAME` | `admin` | Login-Benutzer |
 | `TIMEPARSER_SECURITY_PASSWORD` | `admin` | Login-Passwort |
 
@@ -263,6 +264,7 @@ Veröffentlichte Tags werden aus Branch, Git-Tag und Commit-SHA erzeugt. Auf dem
 
 - In produktionsnahen Umgebungen sollten `TIMEPARSER_SECURITY_USERNAME` und `TIMEPARSER_SECURITY_PASSWORD` immer gesetzt werden.
 - Die SQLite-Datei sollte auf ein persistentes Volume gelegt werden.
+- `TIMEPARSER_THYMELEAF_CACHE` sollte in OpenShift auf `true` bleiben. `false` ist nur für lokale Template-Entwicklung sinnvoll.
 - Der URL-Prefix ist bereits auf `/app/timeparser-rules` ausgelegt und kann hinter einem Reverse Proxy unverändert verwendet werden.
 - Hinter einem TLS-terminierenden Reverse Proxy muss der Proxy mindestens `X-Forwarded-Proto: https` setzen. Sinnvoll sind außerdem `X-Forwarded-Host` und `X-Forwarded-Port`, damit Login- und Logout-Redirects auf die öffentliche HTTPS-URL zeigen.
 - Falls die Header trotz korrekter Proxy-Konfiguration nicht greifen, kann `TIMEPARSER_FORWARD_HEADERS_STRATEGY=framework` gesetzt werden. Diese Variante wertet die Forwarded Headers in Spring statt in Tomcat aus.
