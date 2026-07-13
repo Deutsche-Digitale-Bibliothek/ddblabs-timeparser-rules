@@ -148,23 +148,18 @@
             </div>
         </div>
 
-        <section class="bg-body border rounded p-3 p-lg-4 mb-4"
+        <section class="card border-primary shadow-sm mb-4"
                  th:each="rule, ruleStat : *{rules}"
                  data-rule-section
                  th:id="|rule-${rule.id}|">
-            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
-                <h3 class="h6 mb-0">
-                    Regel
+            <div class="card-header bg-primary-subtle border-primary d-flex flex-column flex-lg-row justify-content-between gap-3 py-3">
+                <h3 class="h6 mb-0 d-flex align-items-center">
+                    <span class="badge text-bg-primary me-2">
+                        Regel <span th:text="${ruleStat.count}">1</span>
+                    </span>
                     <code th:text="${#strings.isEmpty(rule.id)} ? 'automatisch' : ${rule.id}">R1</code>
                 </h3>
                 <div class="d-flex gap-2 align-self-start">
-                    <button type="submit"
-                            class="btn btn-sm btn-outline-primary"
-                            th:formaction="${newGroup} ? @{/rules/new/rules/{index}/tests(index=${ruleStat.index})} : @{/rules/{id}/rules/{index}/tests(id=${groupForm.id}, index=${ruleStat.index})}"
-                            formmethod="post">
-                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
-                        Test hinzufügen
-                    </button>
                     <a th:if="${!newGroup and !#strings.isEmpty(rule.id) and #lists.size(groupForm.rules) > 1}"
                        class="btn btn-sm btn-outline-danger"
                        th:href="@{/rules/{groupId}/rules/{ruleId}/delete(groupId=${groupForm.id}, ruleId=${rule.id})}">
@@ -180,57 +175,78 @@
                 </div>
             </div>
 
-            <input type="hidden" th:field="*{rules[__${ruleStat.index}__].id}">
-            <div class="row g-3 mb-4">
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" th:for="|rules${ruleStat.index}.inputMask|">Eingabemaske</label>
-                    <input class="form-control font-monospace"
-                           th:id="|rules${ruleStat.index}.inputMask|"
-                           placeholder="MM ####"
-                           data-rule-input-mask
-                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputMask')} ? 'is-invalid'"
-                           th:field="*{rules[__${ruleStat.index}__].inputMask}">
-                    <div class="form-text">Maske der tokenisierten Eingabe, z. B. <code>MM ####</code>.</div>
-                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputMask}"></div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" th:for="|rules${ruleStat.index}.inputPattern|">Eingabemuster</label>
-                    <input class="form-control font-monospace"
-                           th:id="|rules${ruleStat.index}.inputPattern|"
-                           placeholder="MM JJJJ"
-                           data-rule-input-pattern
-                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputPattern')} ? 'is-invalid'"
-                           th:field="*{rules[__${ruleStat.index}__].inputPattern}">
-                    <div class="form-text">Variablen passend zur Eingabemaske, z. B. <code>MM JJJJ</code>.</div>
-                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputPattern}"></div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" th:for="|rules${ruleStat.index}.outputMask|">Ausgabemaske</label>
-                    <input class="form-control font-monospace"
-                           th:id="|rules${ruleStat.index}.outputMask|"
-                           placeholder="####-##"
-                           data-rule-output-mask
-                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputMask')} ? 'is-invalid'"
-                           th:field="*{rules[__${ruleStat.index}__].outputMask}">
-                    <div class="form-text">Maske der Parser-Eingabe, z. B. <code>####-##</code>.</div>
-                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputMask}"></div>
-                </div>
-                <div class="col-md-6 col-xl-3">
-                    <label class="form-label" th:for="|rules${ruleStat.index}.outputPattern|">Ausgabemuster</label>
-                    <input class="form-control font-monospace"
-                           th:id="|rules${ruleStat.index}.outputPattern|"
-                           placeholder="JJJJ-MM"
-                           data-rule-output-pattern
-                           th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputPattern')} ? 'is-invalid'"
-                           th:field="*{rules[__${ruleStat.index}__].outputPattern}">
-                    <div class="form-text">Zusammensetzung der Ausgabe, z. B. <code>JJJJ-MM</code>.</div>
-                    <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputPattern}"></div>
+            <div class="card-body p-3 p-lg-4">
+                <h4 class="h6 text-primary mb-3">
+                    <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>
+                    Regeldefinition
+                </h4>
+                <input type="hidden" th:field="*{rules[__${ruleStat.index}__].id}">
+                <div class="row g-3">
+                    <div class="col-md-6 col-xl-3">
+                        <label class="form-label" th:for="|rules${ruleStat.index}.inputMask|">Eingabemaske</label>
+                        <input class="form-control font-monospace"
+                               th:id="|rules${ruleStat.index}.inputMask|"
+                               placeholder="MM ####"
+                               data-rule-input-mask
+                               th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputMask')} ? 'is-invalid'"
+                               th:field="*{rules[__${ruleStat.index}__].inputMask}">
+                        <div class="form-text">Maske der tokenisierten Eingabe, z. B. <code>MM ####</code>.</div>
+                        <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputMask}"></div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <label class="form-label" th:for="|rules${ruleStat.index}.inputPattern|">Eingabemuster</label>
+                        <input class="form-control font-monospace"
+                               th:id="|rules${ruleStat.index}.inputPattern|"
+                               placeholder="MM JJJJ"
+                               data-rule-input-pattern
+                               th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].inputPattern')} ? 'is-invalid'"
+                               th:field="*{rules[__${ruleStat.index}__].inputPattern}">
+                        <div class="form-text">Variablen passend zur Eingabemaske, z. B. <code>MM JJJJ</code>.</div>
+                        <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].inputPattern}"></div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <label class="form-label" th:for="|rules${ruleStat.index}.outputMask|">Ausgabemaske</label>
+                        <input class="form-control font-monospace"
+                               th:id="|rules${ruleStat.index}.outputMask|"
+                               placeholder="####-##"
+                               data-rule-output-mask
+                               th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputMask')} ? 'is-invalid'"
+                               th:field="*{rules[__${ruleStat.index}__].outputMask}">
+                        <div class="form-text">Maske der Parser-Eingabe, z. B. <code>####-##</code>.</div>
+                        <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputMask}"></div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <label class="form-label" th:for="|rules${ruleStat.index}.outputPattern|">Ausgabemuster</label>
+                        <input class="form-control font-monospace"
+                               th:id="|rules${ruleStat.index}.outputPattern|"
+                               placeholder="JJJJ-MM"
+                               data-rule-output-pattern
+                               th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].outputPattern')} ? 'is-invalid'"
+                               th:field="*{rules[__${ruleStat.index}__].outputPattern}">
+                        <div class="form-text">Zusammensetzung der Ausgabe, z. B. <code>JJJJ-MM</code>.</div>
+                        <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].outputPattern}"></div>
+                    </div>
                 </div>
             </div>
 
-            <div class="table-responsive">
-                <table class="table align-top mb-0">
-                    <thead class="table-light">
+            <div class="border-top border-success">
+                <div class="bg-success-subtle d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 px-3 px-lg-4 py-3">
+                    <h4 class="h6 text-success-emphasis mb-0">
+                        <i class="bi bi-check2-square me-1" aria-hidden="true"></i>
+                        Tests
+                        <span class="badge text-bg-success ms-1" th:text="${#lists.size(rule.tests)}">1</span>
+                    </h4>
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-success align-self-start"
+                            th:formaction="${newGroup} ? @{/rules/new/rules/{index}/tests(index=${ruleStat.index})} : @{/rules/{id}/rules/{index}/tests(id=${groupForm.id}, index=${ruleStat.index})}"
+                            formmethod="post">
+                        <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                        Test hinzufügen
+                    </button>
+                </div>
+                <div class="table-responsive">
+                <table class="table table-hover align-top mb-0">
+                    <thead class="table-success">
                     <tr>
                         <th scope="col">ID</th>
                         <th scope="col">Eingabe</th>
@@ -319,6 +335,7 @@
                     </tr>
                     </tbody>
                 </table>
+                </div>
             </div>
         </section>
 
@@ -336,7 +353,7 @@
                             aria-controls="generated-rules-pane"
                             aria-selected="true">
                         Generierte Regeln
-                        <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(generatedRules)}">0</span>
+                        <span class="badge text-bg-primary ms-1" th:text="${#lists.size(generatedRules)}">0</span>
                     </button>
                 </li>
                 <li class="nav-item" role="presentation">
@@ -349,7 +366,7 @@
                             aria-controls="generated-tests-pane"
                             aria-selected="false">
                         Generierte Tests
-                        <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(generatedTests)}">0</span>
+                        <span class="badge text-bg-success ms-1" th:text="${#lists.size(generatedTests)}">0</span>
                     </button>
                 </li>
             </ul>
@@ -361,7 +378,7 @@
                      tabindex="0">
                     <div class="table-responsive" th:if="${!#lists.isEmpty(generatedRules)}">
                         <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
+                            <thead class="table-primary">
                             <tr>
                                 <th scope="col">ID</th>
                                 <th scope="col">Eingabemaske</th>
@@ -390,7 +407,7 @@
                      tabindex="0">
                     <div class="table-responsive" th:if="${!#lists.isEmpty(generatedTests)}">
                         <table class="table table-sm align-middle mb-0">
-                            <thead class="table-light">
+                            <thead class="table-success">
                             <tr>
                                 <th scope="col">ID</th>
                                 <th scope="col">Regel</th>

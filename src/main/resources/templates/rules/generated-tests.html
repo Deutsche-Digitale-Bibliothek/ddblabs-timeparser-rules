@@ -35,7 +35,7 @@
                 <span th:text="${#lists.size(tests)}">0</span> generierte Tests
             </p>
         </div>
-        <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/generated-tests/export}">
+        <a class="btn btn-outline-success align-self-start align-self-lg-center" th:href="@{/generated-tests/export}">
             <i class="bi bi-download" aria-hidden="true"></i>
             CSV herunterladen
         </a>
@@ -47,6 +47,7 @@
                role="tab"
                aria-selected="false"
                th:href="@{/generated-rules}">
+                <i class="bi bi-diagram-3 me-1" aria-hidden="true"></i>
                 Regeln
             </a>
         </li>
@@ -55,15 +56,16 @@
                role="tab"
                aria-selected="true"
                th:href="@{/generated-tests}">
+                <i class="bi bi-check2-square me-1" aria-hidden="true"></i>
                 Tests
-                <span class="badge text-bg-secondary ms-1" th:text="${#lists.size(tests)}">0</span>
+                <span class="badge text-bg-success ms-1" th:text="${#lists.size(tests)}">0</span>
             </a>
         </li>
     </ul>
 
     <div class="table-responsive bg-body border rounded">
         <table id="generatedTestsTable" class="table table-hover align-middle mb-0">
-            <thead class="table-light">
+            <thead class="table-success">
             <tr>
                 <th scope="col">ID</th>
                 <th scope="col">Regel</th>
