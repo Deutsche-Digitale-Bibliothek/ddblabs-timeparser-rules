@@ -86,6 +86,19 @@ class SqliteRuleRepositoryTest {
     }
 
     @Test
+    void fillsDigitPlaceholdersInTokenizedTestFromInput() {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm form = group("Test-Platzhalter mit tokenisierter Maske");
+        RuleGroupForm.RuleVariantForm rule = rule("~aprox ####", "~aprox JJJJ", "um ####", "um JJJJ");
+        rule.getTests().add(test("~aprox 1950", "~aprox ####", "um 1950", "1950-01-01/1950-12-31"));
+        form.getRules().add(rule);
+
+        assertThat(repository.previewTests(form))
+                .extracting(RuleTest::getTokenized)
+                .contains("um 1950", "ca. 1950", "circa 1950", "zirka 1950", "etwa 1950");
+    }
+
+    @Test
     void initializesWithoutCsvSeedFiles() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource("jdbc:sqlite:" + tempDir.resolve("empty-rules.sqlite"));
         SqliteRuleRepository repository = new SqliteRuleRepository(

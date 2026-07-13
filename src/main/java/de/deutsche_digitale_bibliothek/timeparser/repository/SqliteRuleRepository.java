@@ -445,14 +445,15 @@ public class SqliteRuleRepository {
             List<GeneratedRuleRow> rows = rulesByTemplateId.getOrDefault(test.ruleId(), List.of());
             for (GeneratedRuleRow row : rows) {
                 for (Map<String, String> tokenValues : testTokenExpansions(test, row.tokenValues())) {
-                    String tokenized = applyTokenValues(test.tokenized(), tokenValues);
+                    String input = applyTokenValues(test.input(), tokenValues);
+                    String tokenized = applyTestTokenizedTemplate(applyTokenValues(test.tokenized(), tokenValues), input);
                     if (!matchesInputMask(row.rule().getInputMask(), tokenized)) {
                         continue;
                     }
                     candidates.add(new GeneratedTestCandidate(
                             test.id(),
                             row.rule().getId(),
-                            applyTokenValues(test.input(), tokenValues),
+                            input,
                             tokenized,
                             applyTokenValues(test.output(), tokenValues),
                             applyTokenValues(test.timespan(), tokenValues)
@@ -691,6 +692,34 @@ public class SqliteRuleRepository {
         }
         matcher.appendTail(result);
         return result.toString();
+    }
+
+    private String applyTestTokenizedTemplate(String tokenizedTemplate, String input) {
+        if (tokenizedTemplate == null
+                || input == null
+                || !tokenizedTemplate.contains("#")
+                || tokenizedTemplate.length() != input.length()) {
+            return tokenizedTemplate;
+        }
+
+        StringBuilder result = new StringBuilder(tokenizedTemplate.length());
+        boolean replacedDigit = false;
+        for (int index = 0; index < tokenizedTemplate.length(); index++) {
+            char templateCharacter = tokenizedTemplate.charAt(index);
+            char inputCharacter = input.charAt(index);
+            if (templateCharacter == '#') {
+                if (!Character.isDigit(inputCharacter)) {
+                    return tokenizedTemplate;
+                }
+                result.append(inputCharacter);
+                replacedDigit = true;
+            } else if (templateCharacter == inputCharacter) {
+                result.append(templateCharacter);
+            } else {
+                return tokenizedTemplate;
+            }
+        }
+        return replacedDigit ? result.toString() : tokenizedTemplate;
     }
 
     private String lookupTokenValue(Map<String, String> tokenValues, String tokenName) {

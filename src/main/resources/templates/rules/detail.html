@@ -129,6 +129,7 @@
                         <div>800 März 2 -> 0800-03-02</div>
                     </div>
                     <div class="small text-secondary mt-2">Literale Zeichen und Leerzeichen müssen exakt passen. Tests werden nur generiert, wenn der tokenisierte Testwert zur generierten Eingabemaske passt.</div>
+                    <div class="small text-secondary mt-2">In tokenisierten Tests können <code>#</code>-Stellen aus der konkreten Eingabe übernommen werden, z. B. <code>~approx ####</code> bei <code>~approx 1950</code>.</div>
                     <div class="small text-secondary mt-2">Zeiträume sind ISO-Datumsbereiche wie <code>2010-01-01/2010-12-31</code>; der gültige Jahresbereich ist durch ISO-Datum/Java begrenzt.</div>
                 </div>
             </div>
@@ -215,7 +216,7 @@
             </div>
 
             <div class="table-responsive">
-                <table class="table align-middle mb-0">
+                <table class="table align-top mb-0">
                     <thead class="table-light">
                     <tr>
                         <th scope="col">ID</th>
@@ -244,6 +245,7 @@
                             <input class="form-control form-control-sm font-monospace" size="14"
                                    placeholder="~approx 800"
                                    data-test-tokenized
+                                   title="Konkreter tokenisierter Testwert. # kann aus der Eingabe übernommen werden, z. B. ~approx #### bei ~approx 1950."
                                    th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].tokenized')} ? 'is-invalid'"
                                    th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].tokenized}">
                             <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].tokenized}"></div>
@@ -260,9 +262,9 @@
                             <input class="form-control form-control-sm font-monospace" size="20"
                                    placeholder="2010-03-01/2010-03-31"
                                    data-test-timespan
+                                   title="ISO-Zeitraum Start/Ende, z. B. 2010-01-01/2010-12-31."
                                    th:classappend="${#fields.hasErrors('rules[' + ruleStat.index + '].tests[' + testStat.index + '].timespan')} ? 'is-invalid'"
                                    th:field="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}">
-                            <div class="form-text">ISO-Zeitraum Start/Ende, z. B. <code>2010-01-01/2010-12-31</code>.</div>
                             <div class="invalid-feedback" th:errors="*{rules[__${ruleStat.index}__].tests[__${testStat.index}__].timespan}"></div>
                         </td>
                         <td class="text-end">
