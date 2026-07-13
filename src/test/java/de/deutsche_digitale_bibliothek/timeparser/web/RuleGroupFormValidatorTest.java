@@ -41,6 +41,34 @@ class RuleGroupFormValidatorTest {
         assertThat(errors.getFieldError("rules[0].tests[0].timespan")).isNotNull();
     }
 
+    @Test
+    void rejectsDuplicateRules() {
+        RuleGroupForm form = completeForm();
+        new RuleGroupFormEditor().duplicateRule(form, 0);
+        when(repository.unknownTokenNames(form)).thenReturn(List.of());
+        BeanPropertyBindingResult errors = new BeanPropertyBindingResult(form, "groupForm");
+
+        validator.validateForSave(form, errors);
+
+        assertThat(errors.getFieldError("rules[1].inputMask"))
+                .extracting(error -> error.getCode())
+                .isEqualTo("rule.duplicate");
+    }
+
+    @Test
+    void rejectsDuplicateTests() {
+        RuleGroupForm form = completeForm();
+        new RuleGroupFormEditor().duplicateTest(form, 0, 0);
+        when(repository.unknownTokenNames(form)).thenReturn(List.of());
+        BeanPropertyBindingResult errors = new BeanPropertyBindingResult(form, "groupForm");
+
+        validator.validateForSave(form, errors);
+
+        assertThat(errors.getFieldError("rules[0].tests[1].input"))
+                .extracting(error -> error.getCode())
+                .isEqualTo("test.duplicate");
+    }
+
     private RuleGroupForm completeForm() {
         RuleGroupForm form = new RuleGroupForm();
         form.setName("Beispiel");

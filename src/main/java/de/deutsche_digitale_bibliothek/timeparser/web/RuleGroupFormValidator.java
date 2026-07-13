@@ -7,6 +7,8 @@ import org.springframework.validation.Errors;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Prüft fachliche Beziehungen innerhalb eines Regelgruppenformulars.
@@ -20,6 +22,7 @@ public class RuleGroupFormValidator {
     public void validateForSave(RuleGroupForm form, Errors errors) {
         validateStructure(form, errors);
         validateRequiredFields(form, errors);
+        validateUniqueRows(form, errors);
         validatePlausibility(form, errors);
         validateTokens(form, errors);
     }
@@ -58,6 +61,39 @@ public class RuleGroupFormValidator {
                 rejectBlank(errors, testField(ruleIndex, testIndex, "input"), test.getInput(), "Die Eingabe ist erforderlich.");
                 rejectBlank(errors, testField(ruleIndex, testIndex, "tokenized"), test.getTokenized(), "Der tokenisierte Wert ist erforderlich.");
                 rejectBlank(errors, testField(ruleIndex, testIndex, "output"), test.getOutput(), "Die Ausgabe ist erforderlich.");
+            }
+        }
+    }
+
+    private void validateUniqueRows(RuleGroupForm form, Errors errors) {
+        Set<String> ruleSignatures = new HashSet<>();
+        Set<String> testSignatures = new HashSet<>();
+        for (int ruleIndex = 0; ruleIndex < form.getRules().size(); ruleIndex++) {
+            RuleGroupForm.RuleVariantForm rule = form.getRules().get(ruleIndex);
+            if (!ruleSignatures.add(signature(
+                    rule.getInputMask(),
+                    rule.getInputPattern(),
+                    rule.getOutputMask(),
+                    rule.getOutputPattern()))) {
+                errors.rejectValue(
+                        ruleField(ruleIndex, "inputMask"),
+                        "rule.duplicate",
+                        "Diese Regel ist bereits in der Regelgruppe vorhanden. Bitte passen Sie die Kopie an."
+                );
+            }
+            for (int testIndex = 0; testIndex < rule.getTests().size(); testIndex++) {
+                RuleGroupForm.TestForm test = rule.getTests().get(testIndex);
+                if (!testSignatures.add(signature(
+                        test.getInput(),
+                        test.getTokenized(),
+                        test.getOutput(),
+                        test.getTimespan()))) {
+                    errors.rejectValue(
+                            testField(ruleIndex, testIndex, "input"),
+                            "test.duplicate",
+                            "Dieser Test ist bereits vorhanden. Bitte passen Sie die Kopie an."
+                    );
+                }
             }
         }
     }
@@ -167,5 +203,11 @@ public class RuleGroupFormValidator {
 
     private int length(String value) {
         return value.codePointCount(0, value.length());
+    }
+
+    private String signature(String... values) {
+        return String.join("\u001F", java.util.Arrays.stream(values)
+                .map(value -> value == null ? "" : value)
+                .toList());
     }
 }

@@ -19,11 +19,13 @@ import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 import java.util.List;
 
 /**
- * Verarbeitet das Anlegen, Bearbeiten und Löschen von Regelgruppen.
+ * Verarbeitet das Anlegen, Bearbeiten, Duplizieren und Löschen von Regelgruppen.
  */
 @Controller
 @RequiredArgsConstructor
 public class RuleController {
+
+    private static final String DUPLICATE_HINT = "Die Kopie wurde eingefügt. Passen Sie sie vor dem Speichern an, damit keine Dublette entsteht.";
 
     private final SqliteRuleRepository repository;
     private final RuleGroupFormEditor formEditor;
@@ -79,6 +81,17 @@ public class RuleController {
         return "rules/detail";
     }
 
+    @PostMapping("/rules/new/rules/{ruleIndex}/duplicate")
+    public String duplicateRuleInNewGroup(@PathVariable int ruleIndex,
+                                          @ModelAttribute("groupForm") RuleGroupForm groupForm,
+                                          Model model) {
+        formEditor.duplicateRule(groupForm, ruleIndex);
+        model.addAttribute("newGroup", true);
+        model.addAttribute("duplicateHint", DUPLICATE_HINT);
+        addFormPreview(model, groupForm);
+        return "rules/detail";
+    }
+
     @PostMapping("/rules/new/rules/{ruleIndex}/remove")
     public String removeRuleFromNewGroup(@PathVariable int ruleIndex,
                                          @ModelAttribute("groupForm") RuleGroupForm groupForm,
@@ -95,6 +108,18 @@ public class RuleController {
                                         Model model) {
         formEditor.addTest(groupForm, ruleIndex);
         model.addAttribute("newGroup", true);
+        addFormPreview(model, groupForm);
+        return "rules/detail";
+    }
+
+    @PostMapping("/rules/new/rules/{ruleIndex}/tests/{testIndex}/duplicate")
+    public String duplicateTestInNewGroupRule(@PathVariable int ruleIndex,
+                                              @PathVariable int testIndex,
+                                              @ModelAttribute("groupForm") RuleGroupForm groupForm,
+                                              Model model) {
+        formEditor.duplicateTest(groupForm, ruleIndex, testIndex);
+        model.addAttribute("newGroup", true);
+        model.addAttribute("duplicateHint", DUPLICATE_HINT);
         addFormPreview(model, groupForm);
         return "rules/detail";
     }
@@ -166,6 +191,20 @@ public class RuleController {
         return "rules/detail";
     }
 
+    @PostMapping("/rules/{groupId}/rules/{ruleIndex}/duplicate")
+    public String duplicateRuleInGroup(@PathVariable long groupId,
+                                       @PathVariable int ruleIndex,
+                                       @ModelAttribute("groupForm") RuleGroupForm groupForm,
+                                       Model model) {
+        ensureGroupExists(groupId);
+        groupForm.setId(groupId);
+        formEditor.duplicateRule(groupForm, ruleIndex);
+        model.addAttribute("newGroup", false);
+        model.addAttribute("duplicateHint", DUPLICATE_HINT);
+        addFormPreview(model, groupForm);
+        return "rules/detail";
+    }
+
     @PostMapping("/rules/{groupId}/rules/{ruleIndex}/remove")
     public String removeRuleFromGroup(@PathVariable long groupId,
                                       @PathVariable int ruleIndex,
@@ -188,6 +227,21 @@ public class RuleController {
         groupForm.setId(groupId);
         formEditor.addTest(groupForm, ruleIndex);
         model.addAttribute("newGroup", false);
+        addFormPreview(model, groupForm);
+        return "rules/detail";
+    }
+
+    @PostMapping("/rules/{groupId}/rules/{ruleIndex}/tests/{testIndex}/duplicate")
+    public String duplicateTestInGroupRule(@PathVariable long groupId,
+                                           @PathVariable int ruleIndex,
+                                           @PathVariable int testIndex,
+                                           @ModelAttribute("groupForm") RuleGroupForm groupForm,
+                                           Model model) {
+        ensureGroupExists(groupId);
+        groupForm.setId(groupId);
+        formEditor.duplicateTest(groupForm, ruleIndex, testIndex);
+        model.addAttribute("newGroup", false);
+        model.addAttribute("duplicateHint", DUPLICATE_HINT);
         addFormPreview(model, groupForm);
         return "rules/detail";
     }

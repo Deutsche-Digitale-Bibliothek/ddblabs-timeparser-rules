@@ -20,6 +20,13 @@ public class RuleGroupFormEditor {
         form.getRules().add(newRuleVariant());
     }
 
+    public void duplicateRule(RuleGroupForm form, int ruleIndex) {
+        if (!isValidIndex(ruleIndex, form.getRules())) {
+            return;
+        }
+        form.getRules().add(ruleIndex + 1, copyOf(form.getRules().get(ruleIndex)));
+    }
+
     public void removeRule(RuleGroupForm form, int ruleIndex) {
         if (form.getRules().size() > 1 && isValidIndex(ruleIndex, form.getRules())) {
             form.getRules().remove(ruleIndex);
@@ -29,6 +36,16 @@ public class RuleGroupFormEditor {
     public void addTest(RuleGroupForm form, int ruleIndex) {
         if (isValidIndex(ruleIndex, form.getRules())) {
             form.getRules().get(ruleIndex).getTests().add(new RuleGroupForm.TestForm());
+        }
+    }
+
+    public void duplicateTest(RuleGroupForm form, int ruleIndex, int testIndex) {
+        if (!isValidIndex(ruleIndex, form.getRules())) {
+            return;
+        }
+        List<RuleGroupForm.TestForm> tests = form.getRules().get(ruleIndex).getTests();
+        if (isValidIndex(testIndex, tests)) {
+            tests.add(testIndex + 1, copyOf(tests.get(testIndex)));
         }
     }
 
@@ -53,6 +70,25 @@ public class RuleGroupFormEditor {
         RuleGroupForm.RuleVariantForm rule = new RuleGroupForm.RuleVariantForm();
         rule.getTests().add(new RuleGroupForm.TestForm());
         return rule;
+    }
+
+    private RuleGroupForm.RuleVariantForm copyOf(RuleGroupForm.RuleVariantForm source) {
+        RuleGroupForm.RuleVariantForm copy = new RuleGroupForm.RuleVariantForm();
+        copy.setInputMask(source.getInputMask());
+        copy.setInputPattern(source.getInputPattern());
+        copy.setOutputMask(source.getOutputMask());
+        copy.setOutputPattern(source.getOutputPattern());
+        source.getTests().stream().map(this::copyOf).forEach(copy.getTests()::add);
+        return copy;
+    }
+
+    private RuleGroupForm.TestForm copyOf(RuleGroupForm.TestForm source) {
+        RuleGroupForm.TestForm copy = new RuleGroupForm.TestForm();
+        copy.setInput(source.getInput());
+        copy.setTokenized(source.getTokenized());
+        copy.setOutput(source.getOutput());
+        copy.setTimespan(source.getTimespan());
+        return copy;
     }
 
     private boolean isBlank(RuleGroupForm.RuleVariantForm rule) {

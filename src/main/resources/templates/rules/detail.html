@@ -46,6 +46,10 @@
         <div th:if="${previewWarning}" class="alert alert-warning" role="alert">
             <span th:text="${previewWarning}"></span>
         </div>
+        <div th:if="${duplicateHint}" class="alert alert-info" role="alert">
+            <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
+            <span th:text="${duplicateHint}"></span>
+        </div>
 
         <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
             <div>
@@ -160,6 +164,12 @@
                     <code th:text="${#strings.isEmpty(rule.id)} ? 'automatisch' : ${rule.id}">R1</code>
                 </h3>
                 <div class="d-flex gap-2 align-self-start">
+                    <button type="submit"
+                            class="btn btn-sm btn-outline-primary"
+                            th:formaction="${newGroup} ? @{/rules/new/rules/{index}/duplicate(index=${ruleStat.index})} : @{/rules/{id}/rules/{index}/duplicate(id=${groupForm.id}, index=${ruleStat.index})}"
+                            formmethod="post">
+                        Duplizieren
+                    </button>
                     <a th:if="${!newGroup and !#strings.isEmpty(rule.id) and #lists.size(groupForm.rules) > 1}"
                        class="btn btn-sm btn-outline-danger"
                        th:href="@{/rules/{groupId}/rules/{ruleId}/delete(groupId=${groupForm.id}, ruleId=${rule.id})}">
@@ -253,7 +263,7 @@
                         <th scope="col">Tokenisiert</th>
                         <th scope="col">Ausgabe</th>
                         <th scope="col">Zeitraum</th>
-                        <th scope="col" class="text-end text-nowrap position-sticky end-0 bg-body-tertiary z-1">Aktion</th>
+                        <th scope="col" class="text-end text-nowrap position-sticky end-0 bg-success-subtle z-1">Aktion</th>
                     </tr>
                     </thead>
                     <tbody>
@@ -302,6 +312,12 @@
                                         class="btn btn-sm btn-outline-secondary"
                                         data-edit-test-row>
                                     Bearbeiten
+                                </button>
+                                <button type="submit"
+                                        class="btn btn-sm btn-outline-success"
+                                        th:formaction="${newGroup} ? @{/rules/new/rules/{ruleIndex}/tests/{testIndex}/duplicate(ruleIndex=${ruleStat.index}, testIndex=${testStat.index})} : @{/rules/{id}/rules/{ruleIndex}/tests/{testIndex}/duplicate(id=${groupForm.id}, ruleIndex=${ruleStat.index}, testIndex=${testStat.index})}"
+                                        formmethod="post">
+                                    Duplizieren
                                 </button>
                                 <a th:if="${!newGroup and !#strings.isEmpty(rule.id) and !#strings.isEmpty(test.id) and #lists.size(rule.tests) > 1}"
                                    class="btn btn-sm btn-outline-danger"
