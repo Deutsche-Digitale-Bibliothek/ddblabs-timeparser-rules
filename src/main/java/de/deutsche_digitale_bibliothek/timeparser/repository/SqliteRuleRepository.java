@@ -54,6 +54,7 @@ public class SqliteRuleRepository {
     private static final String[] RULE_HEADERS = {"id", "inputMask", "inputPattern", "outputMask", "outputPattern"};
     private static final Pattern NUMERIC_SUFFIX = Pattern.compile("^(\\D*)(\\d+)$");
     private static final Pattern TOKEN_REFERENCE = Pattern.compile("~([A-Za-z][A-Za-z0-9_-]*)");
+    private static final Comparator<String> ID_COMPARATOR = NaturalIdComparator.INSTANCE;
 
     private final JdbcTemplate jdbcTemplate;
     private final Path rulesFile;
@@ -225,14 +226,14 @@ public class SqliteRuleRepository {
     public List<Rule> generatedRules() {
         return generatedRuleRows((Long) null, tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
-                .sorted(Comparator.comparing(Rule::getId, this::compareIds))
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
     }
 
     public List<Rule> generatedRulesForGroup(long groupId) {
         return generatedRuleRows(groupId, tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
-                .sorted(Comparator.comparing(Rule::getId, this::compareIds))
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
     }
 
@@ -247,7 +248,7 @@ public class SqliteRuleRepository {
     public List<Rule> previewRules(RuleGroupForm form) {
         return generatedRuleRows(ruleTemplates(form), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
-                .sorted(Comparator.comparing(Rule::getId, this::compareIds))
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
     }
 
@@ -260,7 +261,7 @@ public class SqliteRuleRepository {
         List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates(form), tokenValues);
         List<Rule> rules = generatedRuleRows.stream()
                 .map(GeneratedRuleRow::rule)
-                .sorted(Comparator.comparing(Rule::getId, this::compareIds))
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
         List<RuleTest> tests = generateTestsForRows(generatedRuleRows, testTemplates(form), tokenValues);
         return new RulePreview(rules, tests);
@@ -507,7 +508,7 @@ public class SqliteRuleRepository {
             }
         }
         return generatedTests.stream()
-                .sorted(Comparator.comparing(RuleTest::getId, this::compareIds))
+                .sorted(Comparator.comparing(RuleTest::getId, ID_COMPARATOR))
                 .toList();
     }
 
@@ -1253,15 +1254,6 @@ public class SqliteRuleRepository {
                 .max()
                 .orElse(0) + 1;
         return prefix + next;
-    }
-
-    private int compareIds(String left, String right) {
-        Matcher leftMatcher = NUMERIC_SUFFIX.matcher(left);
-        Matcher rightMatcher = NUMERIC_SUFFIX.matcher(right);
-        if (leftMatcher.matches() && rightMatcher.matches() && leftMatcher.group(1).equals(rightMatcher.group(1))) {
-            return Integer.compare(Integer.parseInt(leftMatcher.group(2)), Integer.parseInt(rightMatcher.group(2)));
-        }
-        return left.compareTo(right);
     }
 
     private boolean isBlank(String value) {
