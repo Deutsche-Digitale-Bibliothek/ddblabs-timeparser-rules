@@ -47,7 +47,6 @@ class TimeparserRulesApplicationTest {
         registry.add("timeparser.database.path", () -> TEST_FILE_PREFIX + ".sqlite");
         registry.add("timeparser.csv.rules-path", () -> TEST_FILE_PREFIX + "-missing-rules.csv");
         registry.add("timeparser.csv.tests-path", () -> TEST_FILE_PREFIX + "-missing-tests.csv");
-        registry.add("server.forward-headers-strategy", () -> "framework");
     }
 
     @BeforeEach
@@ -73,12 +72,9 @@ class TimeparserRulesApplicationTest {
     }
 
     @Test
-    void redirectsUseForwardedHttpsScheme() throws Exception {
+    void redirectsUnauthenticatedRequestsToLoginWithinTheContextPath() throws Exception {
         mockMvc.perform(get("/app/timeparser-rules/rules")
-                        .contextPath("/app/timeparser-rules")
-                        .header("X-Forwarded-Proto", "https")
-                        .header("X-Forwarded-Host", "domain.de")
-                        .header("X-Forwarded-Port", "443"))
+                        .contextPath("/app/timeparser-rules"))
                 .andExpect(status().is3xxRedirection())
                 .andExpect(header().string("Location", "/app/timeparser-rules/login"));
     }
