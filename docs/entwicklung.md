@@ -1,0 +1,127 @@
+# Entwicklerleitfaden
+
+Die Anwendung pflegt Vorlagen für Regeln und Beispiele des Timeparsers. Sie speichert diese in SQLite, erzeugt daraus konkrete Varianten und exportiert CSV-Dateien. Die echte Parser-Verarbeitung ist nicht eingebunden. Eine fehlerfreie Plausibilitätsprüfung belegt deshalb weder die tatsächliche Regelauswahl noch die korrekte Transformation oder Datumsinterpretation.
+
+## Einstieg in den Code
+
+| Aufgabe | Einstieg |
+| --- | --- |
+| Formularaufbau und Bearbeitungsaktionen | [RuleGroupForm](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/web/RuleGroupForm.java), [RuleGroupFormEditor](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/web/RuleGroupFormEditor.java), [RuleController](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/web/RuleController.java) |
+| Pflichtfelder und konkrete Testwerte prüfen | [RuleGroupValidator](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/validation/RuleGroupValidator.java) |
+| Masken, Variablen und Ausgabeverwendungen prüfen | [RulePatternValidator](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/validation/RulePatternValidator.java) |
+| Mögliche Maskenüberschneidungen erkennen | [RuleMaskOverlap](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/validation/RuleMaskOverlap.java) |
+| Persistenz, Expansion und Befunde koordinieren | [SqliteRuleRepository](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/repository/SqliteRuleRepository.java) |
+| Exportzeilen deduplizieren und Referenzen zuordnen | [ExportDatasetFactory](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/export/ExportDatasetFactory.java) |
+| Daten und Bericht eines Downloads zusammenhalten | [ExportSnapshot](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/model/ExportSnapshot.java) |
+| CSV und ZIP schreiben | [CsvExportService](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/export/CsvExportService.java) |
+| Hinweise anzeigen und Download ausliefern | [RuleOverviewController](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/web/RuleOverviewController.java) |
+
+Die `package-info.java`-Dateien beschreiben die Verantwortung der einzelnen Pakete. Die Javadocs an Klassen und Methoden erläutern deren Verträge und die nicht unmittelbar sichtbaren Entscheidungen.
+
+## Vorlagen, Varianten und IDs
+
+Eine Regelgruppe enthält gespeicherte Regelvorlagen; jede Vorlage hat eigene Testvorlagen. `RuleGroupForm` bildet diese Bearbeitungsstruktur ab. Die Felder dürfen Platzhalter wie `~approx` enthalten. Die Datenbank speichert diesen Text unverändert.
+
+`Rule` und `RuleTest` werden sowohl beim CSV-Import als auch für konkrete erzeugte Zeilen verwendet. Diese Beans allein garantieren daher weder vollständige Expansion noch fachliche Gültigkeit. Die Formularklassen repräsentieren dagegen ausdrücklich den bearbeitbaren Vorlagenstand.
+
+Das Repository unterscheidet intern:
+
+- `RuleTemplate`: unexpandierte Werte und Herkunftsgruppe;
+- `RuleTestTemplate`: unexpandierte Testwerte mit Bezug auf die Regelvorlage;
+- `GeneratedRuleRow`: konkrete Regel, Vorlagen-ID und verwendete Platzhalterbelegung;
+- `GeneratedTestCandidate`: passende Testkombination vor der Vergabe ihrer Ausgabe-ID.
+
+Neue gespeicherte Vorlagen erhalten technische IDs wie `R42` und `T42`. Vorschauen für neue Zeilen arbeiten mit vorläufigen IDs. Erzeugte Varianten verwenden möglichst die Vorlagen-ID und anschließend Suffixe wie `R42_2`; Kollisionen werden innerhalb eines Generierungslaufs umgangen. Diese IDs können sich bei anderer Variantenreihenfolge ändern. Links zur Bearbeitung verwenden deshalb die gespeicherte Vorlagen-ID.
+
+## Ablauf beim Bearbeiten
+
+```mermaid
+flowchart TD
+    F[Formularstand] --> C[Leere Hilfszeilen entfernen]
+    C --> E[validationIssues: Speicherfehler]
+    C --> N[validationNotices: unverbindliche Hinweise]
+    C --> P[preview: konkrete Regeln und Tests]
+    E --> D{Fehler vorhanden?}
+    D -->|ja| V[Formular mit Feldfehlern]
+    D -->|nein, Speichern| S[Vorlagen in SQLite schreiben]
+    D -->|nein, Vorschau| V
+    N --> V
+    P --> V
+    S --> R[Redirect und erneut laden]
+```
+
+Hinzufügen, Duplizieren und Entfernen im Formular verändern zunächst nur den übertragenen Formularstand. Die vollständige Gruppe wird erst beim Speichern geschrieben. Der Repository-Schreibzugriff führt die Formularprüfung nicht selbst aus; neue Aufrufer müssen diese Reihenfolge beachten. Auch der optionale initiale CSV-Import verwendet die Formularvalidierung nicht.
+
+Beim Aktualisieren einer Gruppe werden ihre Regel- und Testzeilen ersetzt. Vorhandene mitgegebene IDs bleiben erhalten; IDs neuer Zeilen werden vergeben, ohne sie in das übergebene Formular zurückzuschreiben. Der Redirect lädt anschließend den gespeicherten Stand.
+
+## Fehler und Hinweise
+
+Beide Arten verwenden `RulePatternValidator.Issue`. Die Bedeutung ergibt sich aus dem aufgerufenen Prüfweg, nicht aus einem Schweregradfeld im Record.
+
+| Prüfweg | Bedeutung | Behandlung |
+| --- | --- | --- |
+| `validationIssues(form)` | Pflichtfelder, Struktur, Masken-/Musterfehler, nicht auflösbare Platzhalter, Dubletten und konkrete Feldfehler | `RuleGroupFormValidator` bindet sie an Spring-Feldfehler; Speichern wird verhindert. |
+| `validationNotices(form)` | fehlende Tests je erzeugter Variante und mögliche Überschneidungen gleich spezifischer Masken | Anzeige zusätzlich zur Vorschau; Speichern bleibt möglich. |
+| `plausibilityWarnings()` | zusammengeführte Befunde zu gespeicherten Gruppen, einschließlich Dublettenfundstellen | Verlinkbare Darstellung; kein Exportverbot. |
+
+Ein `Issue.field` ist entweder ein relativer Feldname wie `outputPattern` oder nach der Repository-Zuordnung ein vollständiger Formularpfad wie `rules[0].tests[1].output`. Der Code, etwa `variable.undefined`, eignet sich zur gezielten Zuordnung in Tests. Der deutsche Meldungstext dient der Oberfläche. `PlausibilityWarning.type` bezeichnet den Anzeigebereich, beispielsweise „Regel“ oder „Test“, und ist ebenfalls kein Schweregrad.
+
+Speicherfehler werden einmal je Feldpfad und Prüfcode ausgegeben; der zuerst erfasste Meldungstext bleibt erhalten. Unterschiedliche Prüfcodes am selben Feld und derselbe Code an verschiedenen Feldern bleiben getrennt. Variantenbezogene Hinweise werden nicht nach diesem Schlüssel zusammengeführt, da ihre Meldungen unterschiedliche Varianten beschreiben können.
+
+Die Prüfung einer bearbeiteten Gruppe vergleicht sie mit anderen Gruppen und dem neuen Formularstand. Ihre bisherige gespeicherte Fassung wird ausgenommen, damit unveränderte Daten nicht als Dubletten ihrer eigenen Fassung gelten.
+
+## Masken- und Testverträge
+
+Masken und Muster werden mit Java-`char`-Indizes und damit UTF-16-Längen verglichen. Gleiche Musterbuchstaben unter zusammenhängenden `#`-Stellen bilden eine Variable. `MM` und `GG` bilden Zweierpaare für Monats- und Wochentagsvariablen; sonstige Zeichen sind Literale. Der Variablenname ist der Buchstabe, nicht die gesamte Zeichenfolge.
+
+Im Eingabemuster darf ein Name nur einmal definiert werden. Die Ausgabe darf eine Eingabevariable mehrfach und gekürzt verwenden. Jede Verwendung muss in die Eingabebreite passen; die längste Verwendung bestimmt somit die notwendige Breite. Führende Nullen müssen als Literale modelliert werden. Beispielsweise ergibt `###` / `JJJ` nach `0###` / `0JJJ` eine vierstellige Ausgabeform.
+
+`outputTestMask` leitet die prüfbare Zeichenform der Ausgabe aus den Eingabevariablen ab. Monatswerte werden zu Ziffern, Wochentagswerte bleiben als `GG` tokenisiert. Die Methode erzeugt keine tatsächliche Ausgabe und ersetzt keine Kalendernamen.
+
+`RuleGroupValidator.validateTest` prüft die konkrete tokenisierte Eingabe und Ausgabe gegen diese Zeichenformen. Der Feldvalidator akzeptiert an `#`-Stellen ASCII-Ziffern. Die einfache Zuordnung generierter Tests im Repository verwendet dagegen `Character.isDigit`; deshalb bedeutet „generiert“ noch nicht „ohne Feldfehler“.
+
+Ein leerer erwarteter Zeitraum bleibt zulässig. Ein gesetzter Zeitraum muss zwei mit `LocalDate.parse` lesbare Daten im Format `Start/Ende` enthalten und darf nicht rückwärts laufen. Die ISO-/Java-Grenzen gelten auch für historische oder große Jahreszahlen. Es wird nicht geprüft, ob dieser Zeitraum aus der ursprünglichen Eingabe oder der erwarteten Ausgabe folgt.
+
+## Platzhalterexpansion
+
+Referenzen haben die Form `~name`. Namen werden über `tokenLookupKey` ohne Beachtung der Großschreibung verglichen; der historische Alias `aprox` wird auf `approx` abgebildet. Dieselbe normalisierte Referenz erhält innerhalb einer Belegung in allen Regel- und Testfeldern denselben Wert.
+
+Mehrere unterschiedliche Namen erzeugen ein kartesisches Produkt ihrer Werte. Ein Test übernimmt zunächst die Belegung seiner konkreten Regelvariante. Nur Namen, die zusätzlich im Test vorkommen, erzeugen weitere Kombinationen. Die Ersetzung erfolgt in einem Durchlauf; eingefügte Werte werden nicht rekursiv als weitere Referenzen expandiert.
+
+Die Erzeugung eines Tests prüft anschließend, ob sein tokenisierter Wert zur konkreten Eingabemaske passt. Eine Vorlage für `ca. 1950` kann damit bewusst nur die `ca.`-Variante einer umfangreicheren `~approx`-Regel abdecken. Andere Varianten werden als ungetestet angezeigt. Nicht passende Kombinationen werden bei der Generierung ausgelassen.
+
+`#`-Stellen einer tokenisierten Testvorlage können aus einer gleich langen konkreten Eingabe übernommen werden. Das funktioniert nur, wenn an diesen Stellen Ziffern stehen und sämtliche übrigen Zeichen übereinstimmen. Monats- oder Wochentagsnamen werden dabei nicht tokenisiert.
+
+Platzhalterwerte werden nicht getrimmt. Leerzeichen können durch ihre Position im erzeugten Text fachlich relevant sein. Führende oder abschließende Leerzeichen in exportierten Feldern werden dagegen beanstandet, weil der CSV-Leser des Timeparsers sie entfernt.
+
+## Exportaufbereitung und Prüfbericht
+
+`exportSnapshot()` liest Vorlagen und Platzhalter, erzeugt konkrete Zeilen und sammelt dazu die aktuellen Befunde. Beim Aufruf über den Spring-Bean gilt die markierte Lesetransaktion. Die anschließenden Methoden `rulesCsv(snapshot)`, `testsCsv(snapshot)` und `rulesAndTestsZip(snapshot)` serialisieren ausschließlich diesen Stand.
+
+`ExportDatasetFactory` verwendet vier Regelwerte als Gleichheitskriterium: Eingabemaske, Eingabemuster, Ausgabemaske und Ausgabemuster. IDs und Gruppen gehören nicht zur Signatur. Bei exakten Dubletten bleibt die zuerst übergebene Regel erhalten. Das Repository übergibt die Regeln natürlich nach ID sortiert.
+
+Tests entfernter Dubletten werden auf die verbleibende Regel-ID umgehängt. Testgleichheit enthält diese kanonische Regel-ID und alle vier Testwerte. Gleiche Beispiele verschiedener Transformationen bleiben erhalten. Verschiedene Transformationen mit derselben Eingabemaske werden ebenfalls nicht entfernt; der Bericht weist darauf hin, dass der Timeparser nur die erste Regel je Maske lädt.
+
+Nicht auflösbare Vorlagen und nicht zuordenbare Tests können nicht als konkrete Zeilen ausgegeben werden. Sie werden mit einem ausdrücklichen Hinweis ausgelassen. Andere expandierbare Zeilen bleiben auch bei Plausibilitätsfehlern exportierbar.
+
+Der Export-Controller zeigt bei Befunden zunächst eine Hinweisseite. `?download=true` erlaubt weiterhin den Download und erzeugt dafür einen aktuellen Snapshot. Die Header `X-Timeparser-Plausibility-Warnings` und `X-Timeparser-Validation: plausibility-only` benennen Anzahl und Art der Prüfung. Im ZIP stehen `rules.csv`, `tests.csv` und `pruefhinweise.txt`. CSV-Einzeldownloads enthalten keine zusätzlichen Kommentarzeilen, damit ihre Spaltenstruktur erhalten bleibt.
+
+Zwei getrennte Downloads können unterschiedliche Datenbankstände verwenden. Für Regeln und Tests aus einem gemeinsamen Stand dient das ZIP. Die Listen in `ExportDataset` und `ExportSnapshot` sind strukturell unveränderlich; die enthaltenen `Rule`-/`RuleTest`-Beans sind weiterhin veränderlich und sollten nach der Snapshot-Erzeugung nicht bearbeitet werden.
+
+## Platzhalter ändern oder löschen
+
+`groupsUsingToken` untersucht Referenzen in den Vorlagen, nicht nur bereits erzeugte Zeilen. Es muss vor dem Umbenennen oder Löschen aufgerufen werden, solange die alte Definition noch bekannt ist. Der Token-Controller zeigt die betroffenen Gruppen anschließend als Flashhinweis an.
+
+Umbenennen oder Löschen schreibt Referenzen nicht automatisch um. Betroffene Gruppen bleiben gespeichert und können danach nicht auflösbare Namen enthalten. Der nächste Plausibilitätscheck und Export bewertet den aktuellen Zustand neu. Der separate Token-CSV-Export ist ein Editorformat und ersetzt nicht die `calendar_tokens.csv` des Timeparsers.
+
+## Änderungen und Verifikation
+
+Neue feldbezogene Regeln gehören möglichst in die zuständige Validierungsklasse. Prüfungen mit Datenbank-, Platzhalter- oder Gruppenbezug werden im Repository koordiniert. Unverbindliche Befunde dürfen nicht über `validateForSave` als Feldfehler gebunden werden. Eine neue Exportvariante sollte denselben `ExportDataset` und `ExportSnapshot` verwenden, statt eine eigene Deduplizierung aufzubauen.
+
+Die Tests folgen diesen Zuständigkeiten: reine Maskenprüfungen unter `validation`, Expansion und Snapshot-Zuordnung unter `repository`, CSV-Serialisierung unter `export` und Formular-/Downloadabläufe unter `web`. `TimeparserRulesApplicationTest` prüft zusätzlich Spring-Konfiguration, HTML-Darstellung und WebJar-Ressourcen.
+
+```bash
+mvn test
+```
+
+Die spätere Ausführung der Regeltests soll über eine gemeinsame Timeparser-Library erfolgen. Bis dahin prüfen die Tests die Editorlogik und Exportverträge; eine vollständige Verarbeitung des aktuellen Regelbestands im Timeparser findet hier nicht statt. Details stehen im [README](../README.md#kompatibilität-mit-dem-timeparser).

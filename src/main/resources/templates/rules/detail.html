@@ -41,10 +41,18 @@
 
     <form th:action="${newGroup} ? @{/rules/new} : @{/rules/{id}(id=${groupForm.id})}" th:object="${groupForm}" method="post">
         <div th:if="${#fields.hasAnyErrors()}" class="alert alert-danger" role="alert">
-            Bitte prüfen Sie die markierten Felder.
+            Die markierten Felder enthalten Fehler.
         </div>
         <div th:if="${previewWarning}" class="alert alert-warning" role="alert">
             <span th:text="${previewWarning}"></span>
+        </div>
+        <div class="alert alert-info" role="note">
+            Regeln und Testwerte werden auf Plausibilität geprüft. Die Testfälle werden hier nicht im Timeparser ausgeführt.
+        </div>
+        <div th:if="${formNotices != null and !#lists.isEmpty(formNotices)}" class="alert alert-warning" role="status">
+            <ul class="mb-0">
+                <li th:each="notice : ${formNotices}" th:text="${notice.message}"></li>
+            </ul>
         </div>
         <div th:if="${duplicateHint}" class="alert alert-info" role="alert">
             <i class="bi bi-info-circle me-1" aria-hidden="true"></i>
@@ -105,6 +113,8 @@
             </button>
         </div>
 
+        <div th:if="${#fields.hasErrors('rules')}" class="alert alert-danger" role="alert" th:errors="*{rules}"></div>
+
         <div class="alert alert-info" role="note">
             <div class="d-flex justify-content-between align-items-center gap-3">
                 <div class="fw-semibold">Kurzsyntax</div>
@@ -121,9 +131,11 @@
             <div class="row g-3">
                 <div class="col-lg-6">
                     <ul class="mb-0">
-                        <li><code>#</code> steht in Masken für genau eine Ziffer; alle anderen Zeichen sind Literale.</li>
+                        <li><code>#</code> steht in Masken für genau eine Ziffer; <code>MM</code> und <code>GG</code> stehen für tokenisierte Monats- und Wochentagswerte. Sonstige Zeichen sind Literale.</li>
                         <li>Maske und Muster müssen gleich lang sein, ebenso Ausgabemaske und Ausgabemuster.</li>
                         <li>Gleiche Musterbuchstaben bilden eine Variable, z. B. <code>####</code> / <code>JJJJ</code>.</li>
+                        <li>Jeder Variablenname darf im Eingabemuster nur einmal definiert sein, auch bei unterschiedlicher Länge: <code>JJJJ/ZZZZ</code> statt <code>JJJJ/JJJJ</code>. In der Ausgabe darf dieselbe Eingabevariable mehrfach verwendet werden, z. B. <code>JJJ0/JJJ9</code>.</li>
+                        <li>Ausgabevariablen müssen in der Eingabe definiert sein und dürfen dort nicht kürzer sein als in der Ausgabe.</li>
                         <li>Häufige Jahresvariablen sind <code>J</code>, <code>JJ</code>, <code>JJJ</code>, <code>JJJJ</code> und längere Folgen.</li>
                         <li>Weitere Jahres- oder Bereichsvariablen sind z. B. <code>ZZZZ</code>, <code>XXXX</code>, <code>YYYY</code> oder <code>WWWW</code>.</li>
                         <li>Tag/Monat erscheinen oft als <code>T</code>/<code>TT</code> und <code>M</code>/<code>MM</code>; in Eingabemasken können <code>MM</code> und <code>GG</code> auch tokenisierte Monats- oder Wochentagswerte sein.</li>
@@ -254,6 +266,9 @@
                         Test hinzufügen
                     </button>
                 </div>
+                <div th:if="${#fields.hasErrors('rules[' + ruleStat.index + '].tests')}"
+                     class="alert alert-danger m-3" role="alert"
+                     th:errors="*{rules[__${ruleStat.index}__].tests}"></div>
                 <div class="table-responsive">
                 <table class="table table-hover align-top mb-0">
                     <thead class="table-success">
@@ -455,20 +470,24 @@
 
 <script>
     (() => {
-        const length = (value) => Array.from(value || '').length;
+        const length = (value) => (value || '').length;
         const hasToken = (value) => (value || '').includes('~');
 
         function feedback(input) {
-            let element = input.parentElement.querySelector('.invalid-feedback');
+            let element = input.parentElement.querySelector('[data-live-feedback]');
             if (!element) {
                 element = document.createElement('div');
                 element.className = 'invalid-feedback';
+                element.dataset.liveFeedback = 'true';
                 input.insertAdjacentElement('afterend', element);
             }
             return element;
         }
 
         function setLiveError(input, message) {
+            if (!input) {
+                return;
+            }
             const element = feedback(input);
             if (message) {
                 input.classList.add('is-invalid');
@@ -477,18 +496,50 @@
                 return;
             }
             if (input.dataset.liveInvalid === 'true') {
-                input.classList.remove('is-invalid');
+                if (input.dataset.serverInvalid !== 'true') {
+                    input.classList.remove('is-invalid');
+                }
                 delete input.dataset.liveInvalid;
                 element.textContent = '';
             }
         }
 
-        function compare(patternInput, maskInput, message) {
-            if (!patternInput || !maskInput || !patternInput.value || !maskInput.value) {
+        function validatePattern(patternInput, maskInput, message, allowReuse = false) {
+            if (!patternInput || !maskInput || !patternInput.value || !maskInput.value
+                    || hasToken(patternInput.value) || hasToken(maskInput.value)) {
                 setLiveError(patternInput, '');
                 return;
             }
-            setLiveError(patternInput, length(patternInput.value) === length(maskInput.value) ? '' : message);
+            if (length(patternInput.value) !== length(maskInput.value)) {
+                setLiveError(patternInput, message);
+                return;
+            }
+            const variables = new Set();
+            const mask = maskInput.value;
+            const pattern = patternInput.value;
+            for (let index = 0; index < mask.length;) {
+                const maskCharacter = mask[index];
+                const name = pattern[index];
+                let end = index + 1;
+                if (maskCharacter === '#') {
+                    while (end < mask.length && mask[end] === '#' && pattern[end] === name) {
+                        end++;
+                    }
+                } else if ((maskCharacter === 'M' || maskCharacter === 'G')
+                        && mask[index + 1] === maskCharacter && pattern[index + 1] === name) {
+                    end = index + 2;
+                } else {
+                    index++;
+                    continue;
+                }
+                if (!allowReuse && variables.has(name)) {
+                    setLiveError(patternInput, 'Die Variable ' + name + ' darf im Eingabemuster nur einmal vorkommen. Unterschiedliche Variablennamen wie JJJJ/ZZZZ sind erforderlich.');
+                    return;
+                }
+                variables.add(name);
+                index = end;
+            }
+            setLiveError(patternInput, '');
         }
 
         function compareGenerated(valueInput, maskInput, message) {
@@ -526,7 +577,7 @@
         }
 
         function validateTimespan(input) {
-            if (!input || !input.value) {
+            if (!input || !input.value || hasToken(input.value)) {
                 setLiveError(input, '');
                 return;
             }
@@ -538,7 +589,7 @@
             const start = parseIsoDate(parts[0]);
             const end = parseIsoDate(parts[1]);
             if (!start || !end) {
-                setLiveError(input, 'Bitte ISO-Daten im Format YYYY-MM-DD/YYYY-MM-DD verwenden.');
+                setLiveError(input, 'Der Zeitraum muss ISO-Daten im Format YYYY-MM-DD/YYYY-MM-DD enthalten.');
                 return;
             }
             setLiveError(input, compareDate(start, end) <= 0 ? '' : 'Der Zeitraum darf nicht vor seinem Start enden.');
@@ -550,8 +601,8 @@
             const outputMask = section.querySelector('[data-rule-output-mask]');
             const outputPattern = section.querySelector('[data-rule-output-pattern]');
 
-            compare(inputPattern, inputMask, 'Eingabemuster und Eingabemaske müssen gleich lang sein.');
-            compare(outputPattern, outputMask, 'Ausgabemuster und Ausgabemaske müssen gleich lang sein.');
+            validatePattern(inputPattern, inputMask, 'Eingabemuster und Eingabemaske müssen gleich lang sein.');
+            validatePattern(outputPattern, outputMask, 'Ausgabemuster und Ausgabemaske müssen gleich lang sein.', true);
 
             section.querySelectorAll('[data-test-row]').forEach((row) => {
                 compareGenerated(row.querySelector('[data-test-tokenized]'), inputMask, 'Der tokenisierte Testwert muss zur Eingabemaske gleich lang sein.');
@@ -577,6 +628,9 @@
             });
         });
 
+        document.querySelectorAll('input.is-invalid').forEach((input) => {
+            input.dataset.serverInvalid = 'true';
+        });
         validateAll();
     })();
 </script>

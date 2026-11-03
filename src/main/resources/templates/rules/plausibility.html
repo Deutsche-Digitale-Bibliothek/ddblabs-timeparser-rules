@@ -32,7 +32,7 @@
         <div>
             <h1 class="h3 mb-1">Plausibilitätscheck</h1>
             <p class="text-secondary mb-0">
-                <span th:text="${#lists.size(plausibilityWarnings)}">0</span> Hinweise auf doppelte Werte
+                <span th:text="${#lists.size(plausibilityWarnings)}">0</span> Hinweise zu Regeln und Tests
             </p>
         </div>
         <a class="btn btn-outline-primary align-self-start align-self-lg-center" th:href="@{/rules/export}">
@@ -42,8 +42,10 @@
     </div>
 
     <div th:if="${#lists.isEmpty(plausibilityWarnings)}" class="alert alert-success" role="alert">
-        Es wurden keine doppelten Regel- oder Testwerte gefunden.
+        Es wurden keine Plausibilitätsfehler in Regeln oder Tests gefunden.
     </div>
+
+    <p class="small text-secondary">Geprüft wird die Plausibilität. Die hinterlegten Testfälle werden hier nicht im Timeparser ausgeführt. Der Export bleibt auch bei Hinweisen möglich und enthält im ZIP einen Prüfbericht.</p>
 
     <section th:if="${!#lists.isEmpty(plausibilityWarnings)}" class="bg-body border rounded">
         <div class="table-responsive">
@@ -52,7 +54,7 @@
                 <tr>
                     <th scope="col" class="text-nowrap">Bereich</th>
                     <th scope="col" class="text-nowrap">IDs</th>
-                    <th scope="col">Doppelte Werte</th>
+                    <th scope="col">Prüfergebnis und Werte</th>
                 </tr>
                 </thead>
                 <tbody>
@@ -76,6 +78,7 @@
                         </div>
                     </td>
                     <td>
+                        <p class="mb-2" th:text="${warning.message}">Die angegebenen Werte erfordern eine Prüfung.</p>
                         <div class="d-flex flex-column gap-2">
                             <div class="d-flex flex-wrap align-items-baseline gap-2" th:each="field : ${warning.fields}">
                                 <span class="fw-semibold text-nowrap" th:text="${field.label}">Eingabemaske</span>
@@ -99,21 +102,17 @@
     </div>
 
     <p class="text-secondary mt-3 mb-0">
-        Beim CSV-Export werden doppelte generierte Regeln &amp; Tests automatisch nur einmal ausgegeben.
+        Beim CSV-Export werden identische generierte Regeln zusammengeführt. Unterschiedliche Tests dieser Regeln bleiben der exportierten Regel zugeordnet.
     </p>
 </main>
 
 <script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
-<script th:src="@{/webjars/jquery/dist/jquery.min.js}"></script>
 <script th:src="@{/webjars/datatables.net/js/dataTables.min.js}"></script>
 <script th:src="@{/webjars/datatables.net-bs5/js/dataTables.bootstrap5.min.js}"></script>
 <script th:if="${!#lists.isEmpty(plausibilityWarnings)}">
     new DataTable('#plausibilityTable', {
         pageLength: 50,
-        lengthMenu: [
-            [50, 100, 250, 1000, -1],
-            ['50', '100', '250', '1000', 'Alle']
-        ],
+        lengthMenu: [50, 100, 250, 1000, {label: 'Alle', value: -1}],
         language: {
             search: 'Suchen:',
             lengthMenu: '_MENU_ Einträge pro Seite',

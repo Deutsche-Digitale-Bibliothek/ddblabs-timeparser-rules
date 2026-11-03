@@ -18,14 +18,14 @@
                         <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
                     </div>
                     <h1 class="h4 mb-1">Anmelden</h1>
-                    <p class="text-secondary mb-0">Bitte melden Sie sich an, um Regeln und Platzhalter zu bearbeiten.</p>
+                    <p class="text-secondary mb-0">Zum Bearbeiten von Regeln und Platzhaltern ist eine Anmeldung erforderlich.</p>
                 </div>
 
                 <div th:if="${param.error}" class="alert alert-danger" role="alert">
                     Benutzername oder Passwort ist nicht korrekt.
                 </div>
                 <div th:if="${param.logout}" class="alert alert-success" role="alert">
-                    Sie wurden abgemeldet.
+                    Die Abmeldung war erfolgreich.
                 </div>
 
                 <form th:action="@{/login}" method="post">

@@ -1,6 +1,9 @@
 package de.deutsche_digitale_bibliothek.timeparser.repository;
 
 import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
+import de.deutsche_digitale_bibliothek.timeparser.export.ExportDataset;
+import de.deutsche_digitale_bibliothek.timeparser.export.ExportDatasetFactory;
+import de.deutsche_digitale_bibliothek.timeparser.model.ExportSnapshot;
 import de.deutsche_digitale_bibliothek.timeparser.model.PlausibilityWarning;
 import de.deutsche_digitale_bibliothek.timeparser.model.Rule;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleGroupSummary;
@@ -9,6 +12,10 @@ import de.deutsche_digitale_bibliothek.timeparser.model.RuleTest;
 import de.deutsche_digitale_bibliothek.timeparser.model.Token;
 import de.deutsche_digitale_bibliothek.timeparser.web.RuleGroupForm;
 import de.deutsche_digitale_bibliothek.timeparser.web.TokenForm;
+import de.deutsche_digitale_bibliothek.timeparser.validation.RuleGroupValidator;
+import de.deutsche_digitale_bibliothek.timeparser.validation.RuleMaskOverlap;
+import de.deutsche_digitale_bibliothek.timeparser.validation.RulePatternValidator;
+import de.deutsche_digitale_bibliothek.timeparser.validation.RulePatternValidator.Issue;
 import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -42,11 +49,26 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Repository für Regelgruppen, generierte Regeln, Tests, Tokens und CSV-Import/-Export.
+ * Speichert Regelvorlagen in SQLite und koordiniert deren Expansion, Prüfung und Export.
  *
- * <p>Die Anwendung speichert bearbeitbare Vorlagen in SQLite. Beim Anzeigen und
- * Exportieren werden Token-Platzhalter wie {@code ~approx} zu konkreten Regeln
- * und Tests expandiert.</p>
+ * <p>Gespeichert werden die vom Benutzer bearbeiteten Masken, Muster und Testwerte,
+ * einschließlich Platzhaltern wie {@code ~approx}. Konkrete CSV-Zeilen entstehen erst
+ * beim Lesen durch die Kombination der aktuellen Platzhalterwerte. Diese abgeleiteten
+ * Zeilen und ihre IDs werden nicht zurück in die Vorlagen geschrieben.</p>
+ *
+ * <p>Die fachlichen Prüfungen sind bewusst in zwei Aufrufwege getrennt:
+ * {@link #validationIssues(RuleGroupForm)} liefert Fehler für das Speichern und die
+ * Formularvorschau; {@link #validationNotices(RuleGroupForm)} liefert unverbindliche
+ * Hinweise auf fehlende Testabdeckung und mögliche Maskenüberschneidungen. Der
+ * Plausibilitätscheck führt beide Ergebnisse für bereits gespeicherte Gruppen zusammen.
+ * Die eigentlichen Masken- und Feldprüfungen liegen in {@link RulePatternValidator}
+ * und {@link RuleGroupValidator}. Testfälle werden hier nicht im Timeparser ausgeführt.</p>
+ *
+ * <p>Für zusammengehörige Exportdateien ist zunächst {@link #exportSnapshot()} aufzurufen.
+ * Der Snapshot bündelt Daten, Befunde und Bericht. Die Serialisierungsüberladungen
+ * mit einem {@link ExportSnapshot} lesen anschließend keine neuen Datenbankwerte.
+ * Exportbefunde verhindern den Download nicht; nicht expandierbare Vorlagen werden
+ * mit einem ausdrücklichen Hinweis ausgelassen.</p>
  */
 @Repository
 public class SqliteRuleRepository {
@@ -61,6 +83,14 @@ public class SqliteRuleRepository {
     private final Path testsFile;
     private final CsvExportService csvExportService;
 
+    /**
+     * Verbindet Persistenz, optionale Seed-Dateien und die CSV-Serialisierung.
+     *
+     * @param jdbcTemplate Datenbankzugriff auf die konfigurierte SQLite-Datei
+     * @param rulesFile Pfad zur optionalen Regel-CSV für den ersten Import
+     * @param testsFile Pfad zur zugehörigen optionalen Test-CSV
+     * @param csvExportService Serializer für bereits aufbereitete Exportzeilen
+     */
     @Autowired
     public SqliteRuleRepository(JdbcTemplate jdbcTemplate,
                                 @Value("${timeparser.csv.rules-path:rules.csv}") String rulesFile,
@@ -79,6 +109,12 @@ public class SqliteRuleRepository {
         this.csvExportService = csvExportService;
     }
 
+    /**
+     * Legt Schema und Standardplatzhalter an und migriert ältere Testtabellen.
+     * CSV-Dateien werden nur importiert, wenn keine Gruppen vorhanden sind und
+     * beide Seed-Dateien existieren. Ein fehlender Seed ist kein Startfehler;
+     * bestehende Regelgruppen werden durch den Start nicht erneut importiert.
+     */
     @PostConstruct
     @Transactional
     public void initialize() {
@@ -91,6 +127,12 @@ public class SqliteRuleRepository {
         }
     }
 
+    /**
+     * Liefert die Gruppenübersicht mit Anzahlen gespeicherter Vorlagen.
+     * Die Anzahlen berücksichtigen keine durch Platzhalter zusätzlich erzeugten Zeilen.
+     *
+     * @return nach Gruppen-ID sortierte Übersicht, bei leerer Datenbank eine leere Liste
+     */
     public List<RuleGroupSummary> findGroupSummaries() {
         return jdbcTemplate.query("""
                 SELECT g.id,
@@ -112,6 +154,15 @@ public class SqliteRuleRepository {
         ));
     }
 
+    /**
+     * Lädt eine bearbeitbare Gruppe einschließlich ihrer unexpandierten Testvorlagen.
+     * Regeln und Tests behalten die gespeicherte Positionsreihenfolge; Platzhalter
+     * und fachlich relevante Leerzeichen bleiben erhalten.
+     *
+     * @param groupId technische ID einer vorhandenen Gruppe
+     * @return neues Formularobjekt mit den gespeicherten IDs und Werten
+     * @throws org.springframework.dao.EmptyResultDataAccessException wenn die Gruppe fehlt
+     */
     public RuleGroupForm findGroupForm(long groupId) {
         Map<String, Object> group = jdbcTemplate.queryForMap(
                 "SELECT id, name, description FROM rule_groups WHERE id = ?",
@@ -142,11 +193,22 @@ public class SqliteRuleRepository {
         return form;
     }
 
+    /**
+     * @param groupId zu prüfende Gruppen-ID
+     * @return ob die Gruppe gespeichert ist
+     */
     public boolean groupExists(long groupId) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM rule_groups WHERE id = ?", Integer.class, groupId);
         return count != null && count > 0;
     }
 
+    /**
+     * Prüft die Regelzugehörigkeit, etwa vor einer gruppenbezogenen Controlleraktion.
+     *
+     * @param groupId erwartete Gruppe
+     * @param ruleId ID der gespeicherten Regelvorlage, keine generierte Varianten-ID
+     * @return ob genau diese Regel in der Gruppe gespeichert ist
+     */
     public boolean ruleExists(long groupId, String ruleId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -156,6 +218,14 @@ public class SqliteRuleRepository {
         return count != null && count > 0;
     }
 
+    /**
+     * Speichert eine neue Gruppe mit ihren Regel- und Testvorlagen.
+     * Fachliche Formularprüfung und Entfernung leerer Hilfszeilen erfolgen beim Aufrufer.
+     * Fehlende Regel-/Test-IDs werden vergeben, aber nicht in {@code form} zurückgeschrieben.
+     *
+     * @param form zuvor geprüftes Formular; Platzhalter bleiben als Vorlagentext erhalten
+     * @return Datenbank-ID der neu angelegten Gruppe
+     */
     @Transactional
     public long createGroup(RuleGroupForm form) {
         long groupId = insertGroup(form.getName(), form.getDescription());
@@ -163,6 +233,13 @@ public class SqliteRuleRepository {
         return groupId;
     }
 
+    /**
+     * Ersetzt die Regeln und Tests einer vorhandenen Gruppe durch den Formularstand.
+     * Die zugehörigen Test- und Regelzeilen werden gelöscht und in Formularreihenfolge
+     * neu eingefügt; mitgegebene IDs bleiben erhalten, fehlende IDs werden vergeben.
+     *
+     * @param form bereinigtes, fachlich geprüftes Formular mit vorhandener Gruppen-ID
+     */
     @Transactional
     public void updateGroup(RuleGroupForm form) {
         jdbcTemplate.update(
@@ -179,6 +256,11 @@ public class SqliteRuleRepository {
         saveRulesForGroup(form.getId(), form.getRules());
     }
 
+    /**
+     * Entfernt eine Gruppe und ihre gespeicherten Regeln und Tests.
+     *
+     * @param groupId ID der zu entfernenden Gruppe
+     */
     @Transactional
     public void deleteGroup(long groupId) {
         jdbcTemplate.update("""
@@ -189,6 +271,14 @@ public class SqliteRuleRepository {
         jdbcTemplate.update("DELETE FROM rule_groups WHERE id = ?", groupId);
     }
 
+    /**
+     * Entfernt eine Regelvorlage einschließlich Tests, sofern die Gruppe weitere Regeln hat.
+     * Der Controller prüft vor dem Aufruf Existenz und Gruppenzugehörigkeit.
+     *
+     * @param groupId zugehörige Gruppe
+     * @param ruleId ID der gespeicherten Regelvorlage
+     * @throws CsvRepositoryException wenn die Gruppe höchstens eine Regel enthält
+     */
     @Transactional
     public void deleteRule(long groupId, String ruleId) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM rules WHERE group_id = ?", Integer.class, groupId);
@@ -199,6 +289,15 @@ public class SqliteRuleRepository {
         jdbcTemplate.update("DELETE FROM rules WHERE id = ? AND group_id = ?", ruleId, groupId);
     }
 
+    /**
+     * Entfernt eine Testvorlage, sofern die Regel mindestens einen weiteren Test hat.
+     * Der Löschzugriff wird zusätzlich auf die angegebene Gruppe und Regel eingeschränkt.
+     *
+     * @param groupId Gruppe der Regel
+     * @param ruleId gespeicherte Regel-ID
+     * @param testId gespeicherte Test-ID
+     * @throws CsvRepositoryException wenn die Regel höchstens einen Test enthält
+     */
     @Transactional
     public void deleteTest(long groupId, String ruleId, String testId) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tests WHERE rule_id = ?", Integer.class, ruleId);
@@ -213,6 +312,12 @@ public class SqliteRuleRepository {
                 """, testId, ruleId, groupId);
     }
 
+    /**
+     * @param groupId erwartete Gruppe
+     * @param ruleId erwartete gespeicherte Regel
+     * @param testId zu prüfende gespeicherte Test-ID
+     * @return ob der Test über die Regel zu genau dieser Gruppe gehört
+     */
     public boolean testExists(long groupId, String ruleId, String testId) {
         Integer count = jdbcTemplate.queryForObject("""
                 SELECT COUNT(*)
@@ -223,28 +328,60 @@ public class SqliteRuleRepository {
         return count != null && count > 0;
     }
 
+    /**
+     * Expandiert alle auflösbaren gespeicherten Regelvorlagen für die Übersicht.
+     * Exakte Dubletten bleiben hier sichtbar. Vorlagen mit unbekannten Platzhaltern
+     * fehlen in dieser Liste und werden im Plausibilitätscheck gesondert gemeldet.
+     *
+     * @return konkrete Regeln, natürlich nach ID sortiert, noch nicht exportbereinigt
+     */
     public List<Rule> generatedRules() {
-        return generatedRuleRows((Long) null, tokenValuesByName()).stream()
+        return safeGeneratedRuleRows(ruleTemplates((Long) null), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
     }
 
+    /**
+     * @param groupId auf diese Gruppe einzuschränkende Vorlagen
+     * @return auflösbare generierte Regeln der Gruppe einschließlich möglicher Dubletten
+     * @see #generatedRules()
+     */
     public List<Rule> generatedRulesForGroup(long groupId) {
-        return generatedRuleRows(groupId, tokenValuesByName()).stream()
+        return safeGeneratedRuleRows(ruleTemplates(groupId), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
     }
 
+    /**
+     * Erzeugt konkrete Tests für die auflösbaren Regelvarianten aller Gruppen.
+     * Nur Kombinationen mit passender tokenisierter Eingabe werden übernommen;
+     * dies ist keine Ausführung oder Erfolgsbewertung der Testfälle.
+     *
+     * @return nach Test-ID sortierte, noch nicht für den Export deduplizierte Tests
+     */
     public List<RuleTest> generatedTests() {
         return generatedTests(null);
     }
 
+    /**
+     * @param groupId einzuschränkende Gruppe
+     * @return generierte Tests der auflösbaren Regelvarianten dieser Gruppe
+     * @see #generatedTests()
+     */
     public List<RuleTest> generatedTestsForGroup(long groupId) {
         return generatedTests(groupId);
     }
 
+    /**
+     * Expandiert vollständige Regelzeilen eines noch nicht gespeicherten Formularstands.
+     * Es werden keine Daten gespeichert und keine Dubletten entfernt.
+     *
+     * @param form aktueller Formularstand
+     * @return konkrete Vorschauzeilen mit vorläufigen IDs für neue Vorlagen
+     * @throws CsvRepositoryException wenn ein verwendeter Platzhalter nicht auflösbar ist
+     */
     public List<Rule> previewRules(RuleGroupForm form) {
         return generatedRuleRows(ruleTemplates(form), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
@@ -252,10 +389,25 @@ public class SqliteRuleRepository {
                 .toList();
     }
 
+    /**
+     * @param form aktueller Formularstand mit Regel- und Testvorlagen
+     * @return generierbare Testwerte; unvollständige Testzeilen werden ignoriert
+     * @throws CsvRepositoryException wenn ein verwendeter Platzhalter nicht auflösbar ist
+     * @see #preview(RuleGroupForm)
+     */
     public List<RuleTest> previewTests(RuleGroupForm form) {
         return generatedTests(ruleTemplates(form), testTemplates(form), tokenValuesByName());
     }
 
+    /**
+     * Erzeugt Regeln und Tests gemeinsam mit derselben gelesenen Platzhalterbelegung.
+     * So passen die vorläufigen Regel-IDs und die Testreferenzen innerhalb der Vorschau
+     * zusammen. Vollständigkeit, fachliche Fehler und Hinweise sind separat zu prüfen.
+     *
+     * @param form nicht persistierter oder bearbeiteter Formularstand
+     * @return zusammengehörige Regeln und Tests ohne Export-Deduplizierung
+     * @throws CsvRepositoryException wenn eine Vorlage unbekannte Platzhalter verwendet
+     */
     public RulePreview preview(RuleGroupForm form) {
         Map<String, List<String>> tokenValues = tokenValuesByName();
         List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates(form), tokenValues);
@@ -267,36 +419,278 @@ public class SqliteRuleRepository {
         return new RulePreview(rules, tests);
     }
 
+    /**
+     * @return Fehler, unverbindliche Hinweise und Dublettenfundstellen aller Gruppen
+     * @see #validationIssues(RuleGroupForm)
+     * @see #validationNotices(RuleGroupForm)
+     */
     public List<PlausibilityWarning> plausibilityWarnings() {
         return plausibilityWarnings(null);
     }
 
+    /**
+     * Prüft eine gespeicherte Gruppe; Konflikte mit anderen Gruppen werden mitbetrachtet.
+     *
+     * @param groupId zu prüfende vorhandene Gruppe
+     * @return Befunde mit Verweisen auf die betroffenen Vorlagen dieser Gruppe
+     */
     public List<PlausibilityWarning> plausibilityWarningsForGroup(long groupId) {
         return plausibilityWarnings(groupId);
     }
 
     /**
-     * Sucht Token-Referenzen in einem Formular, bevor gespeichert wird.
+     * Prüft Vorlagen und alle erzeugbaren konkreten Varianten gegen den aktuellen Bestand.
+     * Die gespeicherte Fassung einer bearbeiteten Gruppe wird vom Vergleich ausgenommen.
+     * Feldpfade wie {@code rules[0].tests[1].output} beziehen sich stets auf das Formular,
+     * auch wenn der Fehler erst nach der Platzhalterexpansion auffällt.
+     *
+     * @param form aktueller Formularstand, bei Bearbeitung mit seiner Gruppen-ID
+     * @return Befunde einmal je Feldpfad und Prüfcode; der zuerst erfasste Text bleibt erhalten
+     * @see #validationNotices(RuleGroupForm)
      */
-    public List<String> unknownTokenNames(RuleGroupForm form) {
-        Map<String, List<String>> tokenValues = tokenValuesByName();
-        Set<String> tokenNames = new LinkedHashSet<>();
-        for (RuleGroupForm.RuleVariantForm rule : form.getRules()) {
-            collectTokenNames(tokenNames, rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
-            for (RuleGroupForm.TestForm test : rule.getTests()) {
-                collectTokenNames(tokenNames, test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
+    public List<Issue> validationIssues(RuleGroupForm form) {
+        Map<String, List<String>> tokens = tokenValuesByName();
+        return validationIssues(form, tokens, safeGeneratedRuleRows(ruleTemplates((Long) null), tokens));
+    }
+
+    /**
+     * Ermittelt fehlende Testabdeckung je erzeugter Variante und mögliche Überschneidungen
+     * gleich spezifischer Masken. Die statische Prüfung sagt keine tatsächliche
+     * Mehrdeutigkeit der späteren Timeparser-Auswahl voraus.
+     *
+     * @param form aktueller Formularstand
+     * @return Hinweise für die Oberfläche; diese werden nicht als Feldfehler gebunden
+     */
+    public List<Issue> validationNotices(RuleGroupForm form) {
+        Map<String, List<String>> tokens = tokenValuesByName();
+        return validationNotices(form, tokens, safeGeneratedRuleRows(ruleTemplates((Long) null), tokens));
+    }
+
+    /** Verwendet Vorlagenzuordnung und generierte Regel-IDs für Abdeckungshinweise je Variante. */
+    private List<Issue> validationNotices(RuleGroupForm form, Map<String, List<String>> tokens,
+                                          List<GeneratedRuleRow> storedRows) {
+        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(ruleTemplates(form), tokens);
+        Set<String> testedIds = new HashSet<>(safeGeneratedTests(rows, testTemplates(form), tokens).stream()
+                .map(RuleTest::getRuleId).toList());
+        List<GeneratedRuleRow> previousRows = new ArrayList<>(storedRows.stream()
+                .filter(row -> form.getId() == null || row.groupId() != form.getId()).toList());
+        Set<Issue> notices = new LinkedHashSet<>();
+        for (GeneratedRuleRow row : rows) {
+            int index = 0;
+            while (index < form.getRules().size() && !previewRuleId(form.getRules().get(index), index).equals(row.templateId())) {
+                index++;
+            }
+            if (index == form.getRules().size()) {
+                continue;
+            }
+            String prefix = "rules[" + index + "].";
+            if (!testedIds.contains(row.rule().getId())) {
+                notices.add(new Issue(prefix + "tests", "test.coverage",
+                        "Für die erzeugte Variante " + row.rule().getId() + " [" + visibleWhitespace(row.rule().getInputMask())
+                                + "] wird kein passender Test exportiert."));
+            }
+            for (GeneratedRuleRow other : previousRows) {
+                RuleMaskOverlap.witness(row.rule().getInputMask(), other.rule().getInputMask()).ifPresent(example ->
+                        notices.add(new Issue(prefix + "inputMask", "rule.mask.overlap",
+                                "Die Eingabemaske könnte sich mit " + other.rule().getId() + " überschneiden (Beispiel: "
+                                        + visibleWhitespace(example) + "). Beide haben gleich viele #-Stellen. Die tatsächliche Regelauswahl ist nicht geprüft.")));
+            }
+            previousRows.add(row);
+        }
+        return List.copyOf(notices);
+    }
+
+    /**
+     * Ergänzt die strukturelle Formularprüfung um Prüfungen expandierter Werte.
+     * Die eigene gespeicherte Gruppe wird ausgeschlossen, damit eine unveränderte
+     * Bearbeitung nicht als Dublette ihrer Datenbankfassung gilt. Testsignaturen
+     * enthalten die Regelsignatur: gleiche Beispiele an unterschiedlichen Regeln
+     * sind zulässig und erhalten ihre jeweilige Zuordnung.
+     */
+    private List<Issue> validationIssues(RuleGroupForm form, Map<String, List<String>> tokens,
+                                         List<GeneratedRuleRow> storedRows) {
+        Set<Issue> issues = new LinkedHashSet<>(RuleGroupValidator.validate(form));
+        List<GeneratedRuleRow> otherRows = storedRows.stream()
+                .filter(row -> form.getId() == null || row.groupId() != form.getId()).toList();
+        Map<String, Rule> seenRules = new LinkedHashMap<>();
+        Set<String> seenTests = new HashSet<>();
+        Map<String, Rule> otherRulesById = new LinkedHashMap<>();
+        for (GeneratedRuleRow row : otherRows) {
+            otherRulesById.put(row.rule().getId(), row.rule());
+        }
+        for (RuleTest existingTest : safeGeneratedTests(otherRows, testTemplates((Long) null), tokens)) {
+            seenTests.add(signature(ruleSignature(otherRulesById.get(existingTest.getRuleId())), testSignature(existingTest)));
+        }
+        for (int r = 0; r < form.getRules().size(); r++) {
+            var rule = form.getRules().get(r);
+            String prefix = "rules[" + r + "].";
+            boolean known = checkTokens(issues, prefix, tokens,
+                    new String[]{"inputMask", "inputPattern", "outputMask", "outputPattern"},
+                    rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
+            List<GeneratedRuleRow> rows = List.of();
+            if (known && isCompleteRule(rule)) {
+                rows = generatedRuleRows(List.of(new RuleTemplate(previewRuleId(rule, r),
+                        form.getId() == null ? 0 : form.getId(), rule.getInputMask(), rule.getInputPattern(),
+                        rule.getOutputMask(), rule.getOutputPattern())), tokens);
+            }
+            for (GeneratedRuleRow row : rows) {
+                Rule concrete = row.rule();
+                addIssues(issues, prefix, RulePatternValidator.validate(concrete.getInputMask(), concrete.getInputPattern(),
+                        concrete.getOutputMask(), concrete.getOutputPattern()));
+                addIssues(issues, prefix, RuleGroupValidator.validateCsvWhitespace(
+                        new String[]{"inputMask", "inputPattern", "outputMask", "outputPattern"},
+                        concrete.getInputMask(), concrete.getInputPattern(), concrete.getOutputMask(), concrete.getOutputPattern()));
+                Rule previous = seenRules.putIfAbsent(concrete.getInputMask(), concrete);
+                if (previous != null) {
+                    addRuleConflict(issues, prefix, concrete, previous);
+                }
+                for (GeneratedRuleRow other : otherRows) {
+                    if (concrete.getInputMask().equals(other.rule().getInputMask())) {
+                        addRuleConflict(issues, prefix, concrete, other.rule());
+                    }
+                }
+            }
+            for (int t = 0; t < rule.getTests().size(); t++) {
+                var test = rule.getTests().get(t);
+                String testPrefix = prefix + "tests[" + t + "].";
+                boolean testKnown = checkTokens(issues, testPrefix, tokens,
+                        new String[]{"input", "tokenized", "output", "timespan"},
+                        test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
+                if (!known || !testKnown || !isCompleteTest(test) || rows.isEmpty()) {
+                    if (test.getTimespan() != null && !test.getTimespan().contains("~")) {
+                        addIssues(issues, testPrefix, RuleGroupValidator.validateTest(null, null, null, null, test.getTimespan()));
+                    }
+                    continue;
+                }
+                RuleTestTemplate template = new RuleTestTemplate(previewTestId(test, r, t), previewRuleId(rule, r),
+                        test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
+                // Eine konkrete Eingabe muss zu mindestens einer Regelvariante passen.
+                // Ausgabewerte hängen dagegen von der gerade gewählten Regelbelegung ab.
+                Set<String> matchedCandidates = new HashSet<>();
+                Set<String> matchedTests = new HashSet<>();
+                Map<String, List<Issue>> candidateIssues = new LinkedHashMap<>();
+                for (GeneratedRuleRow row : rows) {
+                    for (Map<String, String> values : testTokenExpansions(template, row.tokenValues(), tokens)) {
+                        String input = applyTokenValues(template.input(), values);
+                        String tokenized = applyTestTokenizedTemplate(applyTokenValues(template.tokenized(), values), input);
+                        String output = applyTokenValues(template.output(), values);
+                        String timespan = applyTokenValues(template.timespan(), values);
+                        // Output/Timespan gehören absichtlich nicht zum Kandidatenschlüssel:
+                        // Ein Test für "ca. 1950" muss keine "um"-Regelvariante erfüllen.
+                        String candidate = signature(input, tokenized);
+                        Rule concrete = row.rule();
+                        String outputTestMask = RulePatternValidator.outputTestMask(concrete.getInputMask(), concrete.getInputPattern(),
+                                concrete.getOutputMask(), concrete.getOutputPattern());
+                        List<Issue> testIssues = RuleGroupValidator.validateTest(concrete.getInputMask(), outputTestMask,
+                                tokenized, output, timespan);
+                        testIssues.addAll(RuleGroupValidator.validateCsvWhitespace(new String[]{"input"}, input));
+                        candidateIssues.putIfAbsent(candidate, testIssues);
+                        if (matchesInputMask(row.rule().getInputMask(), tokenized)) {
+                            addIssues(issues, testPrefix, testIssues);
+                            matchedCandidates.add(candidate);
+                            String concreteTest = signature(ruleSignature(concrete), input, tokenized, output, timespan);
+                            if (matchedTests.add(concreteTest) && !seenTests.add(concreteTest)) {
+                                addIssue(issues, new Issue(testPrefix + "input", "test.duplicate", "Dieser generierte Test ist bereits vorhanden."));
+                            }
+                        }
+                    }
+                }
+                for (var candidate : candidateIssues.entrySet()) {
+                    if (!matchedCandidates.contains(candidate.getKey())) {
+                        addIssues(issues, testPrefix, candidate.getValue());
+                    }
+                }
             }
         }
-        return tokenNames.stream()
-                .filter(tokenName -> tokenValuesForName(tokenName, tokenValues).isEmpty())
-                .toList();
+        return List.copyOf(issues);
+    }
+
+    /** Unterscheidet exakte Regeldubletten von konkurrierenden Transformationen derselben Maske. */
+    private void addRuleConflict(Set<Issue> issues, String prefix, Rule rule, Rule other) {
+        boolean duplicate = ruleSignature(rule).equals(ruleSignature(other));
+        addIssue(issues, new Issue(prefix + "inputMask", duplicate ? "rule.duplicate" : "rule.mask.conflict",
+                duplicate ? "Diese generierte Regel ist bereits vorhanden."
+                        : "Die Eingabemaske ist bereits mit einer anderen Transformation belegt. Der Timeparser verwendet nur die erste Regel je Eingabemaske."));
+    }
+
+    private void addIssues(Set<Issue> issues, String prefix, List<Issue> additions) {
+        for (Issue issue : additions) {
+            addIssue(issues, new Issue(prefix + issue.field(), issue.code(), issue.message()));
+        }
+    }
+
+    /**
+     * Meldet Speicherfehler nur einmal je Feld und Prüfcode. Die Record-Gleichheit
+     * berücksichtigt auch den Text; sie reicht für Befunde aus Grundprüfung und
+     * Expansion mit unterschiedlichen Erläuterungen nicht aus. Der erste Text bleibt
+     * erhalten. Variantenbezogene Hinweise verwenden bewusst nicht diese Verdichtung.
+     */
+    private void addIssue(Set<Issue> issues, Issue addition) {
+        boolean alreadyReported = issues.stream().anyMatch(issue ->
+                issue.field().equals(addition.field()) && issue.code().equals(addition.code()));
+        if (!alreadyReported) {
+            issues.add(addition);
+        }
+    }
+
+    private boolean checkTokens(Set<Issue> issues, String prefix, Map<String, List<String>> tokens,
+                                  String[] fields, String... values) {
+        boolean known = true;
+        for (int i = 0; i < fields.length; i++) {
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, values[i]);
+            for (String name : names) {
+                if (tokenValuesForName(name, tokens).isEmpty()) {
+                    addIssue(issues, new Issue(prefix + fields[i], "token.unknown", "Platzhalter ~" + name + " ist nicht definiert."));
+                    known = false;
+                }
+            }
+        }
+        return known;
+    }
+
+    /**
+     * Überspringt ausschließlich Vorlagen mit nicht auflösbaren Platzhaltern.
+     * "Safe" bezeichnet hier die fortsetzbare Expansion, nicht fachliche Fehlerfreiheit:
+     * andere fehlerhafte Zeilen bleiben für Anzeige, Prüfung und Export erhalten.
+     */
+    private List<GeneratedRuleRow> safeGeneratedRuleRows(List<RuleTemplate> templates, Map<String, List<String>> tokens) {
+        List<RuleTemplate> knownTemplates = templates.stream().filter(template -> {
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, template.inputMask(), template.inputPattern(), template.outputMask(), template.outputPattern());
+            return names.stream().allMatch(name -> !tokenValuesForName(name, tokens).isEmpty());
+        }).toList();
+        // Die gemeinsame ID-Vergabe muss auch bei unvollständigen Vorlagen erhalten bleiben.
+        return generatedRuleRows(knownTemplates, tokens);
     }
 
     private List<PlausibilityWarning> plausibilityWarnings(Long groupId) {
         Map<String, List<String>> tokenValues = tokenValuesByName();
-        List<RuleTemplate> ruleTemplates = ruleTemplates(groupId);
+        List<GeneratedRuleRow> allRows = safeGeneratedRuleRows(ruleTemplates((Long) null), tokenValues);
+        return plausibilityWarnings(groupId, tokenValues, allRows, testTemplates((Long) null));
+    }
+
+    /**
+     * Stellt feldbezogene Fehler, unverbindliche Hinweise und gruppierte Dubletten dar.
+     * Vorgegebene Belegungen und Zeilen erlauben dem Export, denselben gelesenen Stand
+     * für Daten und Bericht zu verwenden. {@code groupId == null} prüft alle Gruppen.
+     */
+    private List<PlausibilityWarning> plausibilityWarnings(Long groupId, Map<String, List<String>> tokenValues,
+                                                           List<GeneratedRuleRow> allRows, List<RuleTestTemplate> tests) {
         List<PlausibilityWarning> warnings = new ArrayList<>();
-        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates, tokenValues);
+        List<GeneratedRuleRow> generatedRuleRows = groupId == null ? allRows
+                : allRows.stream().filter(row -> row.groupId() == groupId).toList();
+        List<Long> groupIds = groupId == null
+                ? jdbcTemplate.queryForList("SELECT id FROM rule_groups ORDER BY id", Long.class) : List.of(groupId);
+        for (long id : groupIds) {
+            RuleGroupForm form = findGroupForm(id);
+            for (Issue issue : validationIssues(form, tokenValues, allRows)) {
+                warnings.add(validationWarning(form, issue));
+            }
+            for (Issue notice : validationNotices(form, tokenValues, allRows)) {
+                warnings.add(validationWarning(form, notice));
+            }
+        }
         Map<String, GeneratedRuleRow> rowsByRuleId = new LinkedHashMap<>();
         for (GeneratedRuleRow row : generatedRuleRows) {
             rowsByRuleId.put(row.rule().getId(), row);
@@ -304,10 +698,48 @@ public class SqliteRuleRepository {
         addDuplicateRuleWarnings(warnings, generatedRuleRows);
         addDuplicateTestWarnings(
                 warnings,
-                generateTestsForRows(generatedRuleRows, testTemplates(groupId), tokenValues),
+                safeGeneratedTests(generatedRuleRows, tests, tokenValues),
                 rowsByRuleId
         );
         return warnings;
+    }
+
+    /**
+     * Lässt Testvorlagen mit unbekannten Platzhaltern aus und erzeugt die übrigen Tests.
+     * Fehlende Zuordnungen zu einer Regel oder Maske können weitere Tests herausfiltern;
+     * die aufrufende Prüf-/Exportschicht ist für entsprechende Hinweise zuständig.
+     */
+    private List<RuleTest> safeGeneratedTests(List<GeneratedRuleRow> rows, List<RuleTestTemplate> templates,
+                                              Map<String, List<String>> tokens) {
+        List<RuleTestTemplate> knownTemplates = templates.stream().filter(test -> {
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, test.input(), test.tokenized(), test.output(), test.timespan());
+            return names.stream().allMatch(name -> !tokenValuesForName(name, tokens).isEmpty());
+        }).toList();
+        return generateTestsForRows(rows, knownTemplates, tokens);
+    }
+
+    /** Ordnet einen Formularfeldpfad gespeicherten IDs und dem HTML-Anker der Regelvorlage zu. */
+    private PlausibilityWarning validationWarning(RuleGroupForm form, Issue issue) {
+        String id = isBlank(form.getName()) ? "Gruppe " + form.getId() : form.getName();
+        String anchor = "";
+        String type = "Regelgruppe";
+        List<PlausibilityWarning.PlausibilityField> fields = List.of(plausibilityField("Feld", issue.field()));
+        Matcher location = Pattern.compile("^rules\\[(\\d+)](?:\\.tests\\[(\\d+)])?.*").matcher(issue.field());
+        if (location.matches()) {
+            var rule = form.getRules().get(Integer.parseInt(location.group(1)));
+            id = rule.getId();
+            anchor = "rule-" + id;
+            type = "Regel";
+            fields = ruleFields(new Rule(id, rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern()));
+            if (location.group(2) != null) {
+                var test = rule.getTests().get(Integer.parseInt(location.group(2)));
+                id = test.getId();
+                type = "Test";
+                fields = testFields(new RuleTest(id, rule.getId(), test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan()));
+            }
+        }
+        return new PlausibilityWarning(type, List.of(new PlausibilityWarning.PlausibilityEntry(id, form.getId(), anchor)), fields, issue.message());
     }
 
     private void addDuplicateRuleWarnings(List<PlausibilityWarning> warnings, List<GeneratedRuleRow> ruleRows) {
@@ -332,7 +764,9 @@ public class SqliteRuleRepository {
                                           Map<String, GeneratedRuleRow> rowsByRuleId) {
         Map<String, List<RuleTest>> testsByValues = new LinkedHashMap<>();
         for (RuleTest test : tests) {
-            testsByValues.computeIfAbsent(testSignature(test), key -> new ArrayList<>()).add(test);
+            GeneratedRuleRow row = rowsByRuleId.get(test.getRuleId());
+            String scope = row == null ? test.getRuleId() : ruleSignature(row.rule());
+            testsByValues.computeIfAbsent(signature(scope, testSignature(test)), key -> new ArrayList<>()).add(test);
         }
         for (List<RuleTest> duplicateTests : testsByValues.values()) {
             if (duplicateTests.size() > 1) {
@@ -347,23 +781,140 @@ public class SqliteRuleRepository {
         }
     }
 
+    /**
+     * Erstellt einen aktuellen Snapshot und serialisiert Regeln, Tests und Prüfbericht.
+     * Befunde verhindern die Erzeugung des ZIP nicht.
+     *
+     * @return ZIP mit {@code rules.csv}, {@code tests.csv} und {@code pruefhinweise.txt}
+     * @see #exportSnapshot()
+     */
+    @Transactional(readOnly = true)
     public byte[] rulesAndTestsZip() {
-        List<Rule> exportedRules = exportRules();
-        return csvExportService.rulesAndTestsZip(exportedRules, exportTests(exportedRules));
+        return rulesAndTestsZip(exportSnapshot());
     }
 
+    /**
+     * @return UTF-8-Regel-CSV aus einem neu erzeugten Exportstand
+     * @see #rulesCsv(ExportSnapshot)
+     */
+    @Transactional(readOnly = true)
     public byte[] rulesCsv() {
-        return csvExportService.rulesCsv(exportRules());
+        return rulesCsv(exportSnapshot());
     }
 
+    /**
+     * @return UTF-8-Test-CSV mit Referenzen auf die kanonischen Regeln des Exportstands
+     * @see #testsCsv(ExportSnapshot)
+     */
+    @Transactional(readOnly = true)
     public byte[] testsCsv() {
-        return csvExportService.testsCsv(exportTests());
+        return testsCsv(exportSnapshot());
     }
 
+    /**
+     * Serialisiert einen bereits geprüften Exportstand ohne erneuten Datenbankzugriff.
+     *
+     * @param snapshot gemeinsame Daten und Befunde für diesen Download
+     * @return ZIP einschließlich des zum Snapshot gehörenden Prüfberichts
+     */
+    public byte[] rulesAndTestsZip(ExportSnapshot snapshot) {
+        return csvExportService.rulesAndTestsZip(snapshot.dataset().rules(), snapshot.dataset().tests(), snapshot.report());
+    }
+
+    /**
+     * @param snapshot bereits erzeugter gemeinsamer Exportstand
+     * @return dessen Regel-CSV; Reihenfolge und kanonische IDs werden unverändert übernommen
+     */
+    public byte[] rulesCsv(ExportSnapshot snapshot) {
+        return csvExportService.rulesCsv(snapshot.dataset().rules());
+    }
+
+    /**
+     * @param snapshot bereits erzeugter gemeinsamer Exportstand
+     * @return dessen Test-CSV mit den durch die Exportaufbereitung angepassten Regelreferenzen
+     */
+    public byte[] testsCsv(ExportSnapshot snapshot) {
+        return csvExportService.testsCsv(snapshot.dataset().tests());
+    }
+
+    /**
+     * Bündelt die aufbereiteten Exportdaten und alle zugehörigen statischen Befunde.
+     *
+     * <p>Auflösbare Vorlagen werden expandiert und durch {@link ExportDatasetFactory}
+     * von exakten Dubletten bereinigt. Nicht auflösbare Regeln oder Tests sowie Tests
+     * ohne passende Eingabemaske werden ausgelassen und ausdrücklich im Bericht genannt.
+     * Andere Plausibilitätsfehler entfernen keine expandierbaren Exportzeilen.</p>
+     *
+     * <p>Beim Aufruf über das Spring-Repository umfasst die Lesetransaktion die
+     * Daten und den Bericht desselben Downloads. Für mehrere Dateien aus einem Stand
+     * sollte derselbe Snapshot verwendet werden. Zwei getrennte HTTP-Downloads erzeugen
+     * dagegen jeweils einen neuen Stand. Die enthaltenen Testfälle werden nicht ausgeführt.</p>
+     *
+     * @return Exportdaten, verlinkbare Befunde und UTF-8-geeigneter Berichtstext
+     */
+    @Transactional(readOnly = true)
+    public ExportSnapshot exportSnapshot() {
+        Map<String, List<String>> tokens = tokenValuesByName();
+        List<RuleTemplate> templates = ruleTemplates((Long) null);
+        List<RuleTestTemplate> tests = testTemplates((Long) null);
+        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(templates, tokens);
+        ExportDataset dataset = ExportDatasetFactory.create(rows.stream().map(GeneratedRuleRow::rule)
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR)).toList(), safeGeneratedTests(rows, tests, tokens));
+        List<PlausibilityWarning> warnings = new ArrayList<>(plausibilityWarnings(null, tokens, rows, tests));
+        for (String warning : dataset.warnings()) {
+            warnings.add(new PlausibilityWarning("Export", List.of(), List.of(), warning));
+        }
+        Set<String> expanded = new HashSet<>(rows.stream().map(GeneratedRuleRow::templateId).toList());
+        for (RuleTemplate template : templates) {
+            if (!expanded.contains(template.id())) {
+                warnings.add(new PlausibilityWarning("Export", List.of(new PlausibilityWarning.PlausibilityEntry(
+                        template.id(), template.groupId(), "rule-" + template.id())), List.of(),
+                        "Die Regel " + template.id() + " und ihre Tests fehlen im Export, weil Platzhalter nicht expandiert werden können."));
+            }
+        }
+        for (RuleTestTemplate test : tests) {
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, test.input(), test.tokenized(), test.output(), test.timespan());
+            if (names.stream().anyMatch(name -> tokenValuesForName(name, tokens).isEmpty())) {
+                warnings.add(new PlausibilityWarning("Export", List.of(), List.of(),
+                        "Der Test " + test.id() + " fehlt im Export, weil ein Platzhalter nicht expandiert werden kann."));
+            } else if (expanded.contains(test.ruleId()) && safeGeneratedTests(rows, List.of(test), tokens).isEmpty()) {
+                warnings.add(new PlausibilityWarning("Export", List.of(), List.of(),
+                        "Der Test " + test.id() + " fehlt im Export, weil der tokenisierte Wert zu keiner erzeugten Eingabemaske passt."));
+            }
+        }
+        String report = exportReport(dataset, warnings);
+        return new ExportSnapshot(dataset, warnings, report);
+    }
+
+    /** Formatiert Befunde und Prüfgrenzen als beiliegenden Text; der Bericht ist keine Parserfreigabe. */
+    private String exportReport(ExportDataset dataset, List<PlausibilityWarning> warnings) {
+        StringBuilder report = new StringBuilder("Timeparser-Regeln: Prüfhinweise zum Export\n\n")
+                .append("Regeln: ").append(dataset.rules().size()).append("\nTests: ").append(dataset.tests().size())
+                .append("\nHinweise: ").append(warnings.size()).append("\n\n")
+                .append("Es wurden statische Plausibilitätsprüfungen durchgeführt. Die Testfälle wurden nicht im Timeparser ausgeführt.\n")
+                .append("Tokenisierung, tatsächliche Regelauswahl, Transformation und Datumsinterpretation sind nicht abschließend geprüft.\n")
+                .append("Nicht expandierbare Vorlagen können nicht als konkrete CSV-Zeilen ausgegeben werden und werden unten aufgeführt.\n\n");
+        for (PlausibilityWarning warning : warnings) {
+            String ids = warning.entries().stream().map(PlausibilityWarning.PlausibilityEntry::id)
+                    .collect(java.util.stream.Collectors.joining(", "));
+            report.append("- ").append(warning.type()).append(ids.isBlank() ? "" : " [" + ids + "]")
+                    .append(": ").append(warning.message()).append('\n');
+        }
+        return report.toString();
+    }
+
+    /**
+     * @return Platzhalterdefinitionen im Editorformat; kein Ersatz für die
+     *         {@code calendar_tokens.csv} des Timeparsers
+     */
     public byte[] tokensCsv() {
         return csvExportService.tokensCsv(findTokens());
     }
 
+    /**
+     * @return nach Namen sortierte Platzhalter mit ihren Werten in gespeicherter Reihenfolge
+     */
     public List<Token> findTokens() {
         Map<Long, List<String>> valuesByTokenId = tokenValuesByTokenId();
         return jdbcTemplate.query("""
@@ -378,6 +929,14 @@ public class SqliteRuleRepository {
         ));
     }
 
+    /**
+     * Lädt Platzhalterwerte als mehrzeiligen Text zur Bearbeitung. Leerzeichen innerhalb
+     * der einzelnen Werte bleiben unverändert; nur die Zeilentrennung wird vereinheitlicht.
+     *
+     * @param tokenId vorhandene Platzhalter-ID
+     * @return bearbeitbares Formular, ein Wert pro Zeile
+     * @throws org.springframework.dao.EmptyResultDataAccessException wenn die Definition fehlt
+     */
     public TokenForm findTokenForm(long tokenId) {
         Map<String, Object> token = jdbcTemplate.queryForMap(
                 "SELECT id, name, description FROM tokens WHERE id = ?",
@@ -391,11 +950,24 @@ public class SqliteRuleRepository {
         return form;
     }
 
+    /**
+     * @param tokenId technische Platzhalter-ID
+     * @return ob die Definition vorhanden ist, unabhängig von der Anzahl ihrer Werte
+     */
     public boolean tokenExists(long tokenId) {
         Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tokens WHERE id = ?", Integer.class, tokenId);
         return count != null && count > 0;
     }
 
+    /**
+     * Prüft die Namenseindeutigkeit ohne Beachtung der Großschreibung.
+     * Anders als die Expansion vergleicht diese Datenbankabfrage die Namen unmittelbar
+     * und führt den historischen Alias {@code aprox} nicht auf {@code approx} zurück.
+     *
+     * @param name angefragter Name; {@code null} oder leer liefert {@code false}
+     * @param excludedTokenId beim Bearbeiten auszunehmende eigene ID, sonst {@code null}
+     * @return ob eine andere gespeicherte Definition denselben Namen hat
+     */
     public boolean tokenNameExists(String name, Long excludedTokenId) {
         if (name == null || name.isBlank()) {
             return false;
@@ -414,6 +986,45 @@ public class SqliteRuleRepository {
         return count != null && count > 0;
     }
 
+    /**
+     * Sucht Verwendungen in unexpandierten Regel- und Testfeldern, einschließlich
+     * erwarteter Zeiträume. Großschreibung und der Alias {@code aprox} werden wie
+     * bei der Expansion normalisiert. Vor Umbenennen oder Löschen aufrufen, damit
+     * die Oberfläche die vom bisherigen Namen abhängigen Gruppen nennen kann.
+     *
+     * @param tokenId ID der noch vorhandenen Platzhalterdefinition
+     * @return betroffene Gruppen einmalig und in der Reihenfolge der Gruppenübersicht
+     */
+    public List<RuleGroupSummary> groupsUsingToken(long tokenId) {
+        String name = tokenLookupKey(findTokenForm(tokenId).getName());
+        Set<Long> groupIds = new HashSet<>();
+        Map<String, Long> ruleGroups = new LinkedHashMap<>();
+        for (RuleTemplate rule : ruleTemplates((Long) null)) {
+            ruleGroups.put(rule.id(), rule.groupId());
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, rule.inputMask(), rule.inputPattern(), rule.outputMask(), rule.outputPattern());
+            if (names.stream().anyMatch(value -> tokenLookupKey(value).equals(name))) {
+                groupIds.add(rule.groupId());
+            }
+        }
+        for (RuleTestTemplate test : testTemplates((Long) null)) {
+            Set<String> names = new LinkedHashSet<>();
+            collectTokenNames(names, test.input(), test.tokenized(), test.output(), test.timespan());
+            if (names.stream().anyMatch(value -> tokenLookupKey(value).equals(name))) {
+                groupIds.add(ruleGroups.get(test.ruleId()));
+            }
+        }
+        return findGroupSummaries().stream().filter(group -> groupIds.contains(group.id())).toList();
+    }
+
+    /**
+     * Legt einen Platzhalter an oder ersetzt seine vollständige Werteliste.
+     * Leere Zeilen werden ausgelassen, Leerzeichen nicht getrimmt. Eine Umbenennung
+     * ändert keine Verweise in Regel- oder Testvorlagen; diese können anschließend
+     * als unbekannte Platzhalter gemeldet werden.
+     *
+     * @param form vorab geprüftes Formular; {@code id == null} legt eine neue Definition an
+     */
     @Transactional
     public void saveToken(TokenForm form) {
         long tokenId;
@@ -427,6 +1038,13 @@ public class SqliteRuleRepository {
         insertTokenValues(tokenId, splitValues(form.getValues()));
     }
 
+    /**
+     * Löscht Definition und Werte, ohne referenzierende Vorlagen umzuschreiben.
+     * Abhängige Gruppen bleiben erhalten und werden bei der nächsten Prüfung neu bewertet.
+     *
+     * @param tokenId zu löschende Platzhalterdefinition
+     * @see #groupsUsingToken(long)
+     */
     @Transactional
     public void deleteToken(long tokenId) {
         jdbcTemplate.update("DELETE FROM token_values WHERE token_id = ?", tokenId);
@@ -454,7 +1072,8 @@ public class SqliteRuleRepository {
     }
 
     private List<RuleTest> generatedTests(Long groupId) {
-        return generatedTests(ruleTemplates(groupId), testTemplates(groupId), tokenValuesByName());
+        Map<String, List<String>> tokens = tokenValuesByName();
+        return safeGeneratedTests(safeGeneratedRuleRows(ruleTemplates(groupId), tokens), testTemplates(groupId), tokens);
     }
 
     private List<RuleTest> generatedTests(List<RuleTemplate> ruleTemplates,
@@ -464,6 +1083,12 @@ public class SqliteRuleRepository {
         return generateTestsForRows(generatedRules, tests, tokenValuesByName);
     }
 
+    /**
+     * Verknüpft Testvorlagen über ihre gespeicherte Regel-ID mit deren konkreten Varianten.
+     * Regelgebundene Platzhalterwerte werden übernommen, reine Testplatzhalter zusätzlich
+     * expandiert. Nur maskenpassende tokenisierte Werte werden zu Ergebniszeilen.
+     * Erwartete Ausgabe und Zeitraum werden übernommen, nicht berechnet oder überprüft.
+     */
     private List<RuleTest> generateTestsForRows(List<GeneratedRuleRow> generatedRules,
                                                 List<RuleTestTemplate> tests,
                                                 Map<String, List<String>> tokenValuesByName) {
@@ -481,6 +1106,7 @@ public class SqliteRuleRepository {
                 for (Map<String, String> tokenValues : testTokenExpansions(test, row.tokenValues(), tokenValuesByName)) {
                     String input = applyTokenValues(test.input(), tokenValues);
                     String tokenized = applyTestTokenizedTemplate(applyTokenValues(test.tokenized(), tokenValues), input);
+                    // Eine Testvorlage kann bewusst nur eine Teilmenge der Regelvarianten abdecken.
                     if (!matchesInputMask(row.rule().getInputMask(), tokenized)) {
                         continue;
                     }
@@ -512,10 +1138,11 @@ public class SqliteRuleRepository {
                 .toList();
     }
 
-    private List<GeneratedRuleRow> generatedRuleRows(Long groupId, Map<String, List<String>> tokenValuesByName) {
-        return generatedRuleRows(ruleTemplates(groupId), tokenValuesByName);
-    }
-
+    /**
+     * Expandiert Vorlagen und bewahrt ihre Herkunft für Rückverweise und Testzuordnungen.
+     * Alle Zeilen dieses Aufrufs teilen sich die ID-Kollisionsmenge. Daher dürfen
+     * exportierte IDs nicht durch getrennte Expansion jeder einzelnen Vorlage entstehen.
+     */
     private List<GeneratedRuleRow> generatedRuleRows(List<RuleTemplate> templates,
                                                      Map<String, List<String>> tokenValuesByName) {
         Set<String> usedIds = new HashSet<>();
@@ -554,6 +1181,7 @@ public class SqliteRuleRepository {
                 """, this::ruleTemplate, groupId);
     }
 
+    /** Übernimmt vollständige Formularzeilen; neue Zeilen erhalten nur für die Vorschau vorläufige IDs. */
     private List<RuleTemplate> ruleTemplates(RuleGroupForm form) {
         long groupId = form.getId() == null ? 0 : form.getId();
         List<RuleTemplate> templates = new ArrayList<>();
@@ -603,6 +1231,7 @@ public class SqliteRuleRepository {
                 """, this::ruleTestTemplate, groupId);
     }
 
+    /** Ignoriert unvollständige Tests und Tests unvollständiger Regeln, ohne das Formular zu verändern. */
     private List<RuleTestTemplate> testTemplates(RuleGroupForm form) {
         List<RuleTestTemplate> templates = new ArrayList<>();
         for (int ruleIndex = 0; ruleIndex < form.getRules().size(); ruleIndex++) {
@@ -640,6 +1269,12 @@ public class SqliteRuleRepository {
         );
     }
 
+    /**
+     * Bildet das kartesische Produkt aller in einer Regel verwendeten Platzhalterwerte.
+     * Derselbe normalisierte Name hat innerhalb einer Belegung in allen Feldern denselben
+     * Wert. Ohne Platzhalter gibt es genau eine leere Belegung, nicht null Varianten.
+     * Nicht auflösbare Namen führen im strikten Vorschaupfad zu einer Ausnahme.
+     */
     private List<Map<String, String>> tokenExpansions(RuleTemplate template,
                                                       Map<String, List<String>> tokenValuesByName) {
         Set<String> tokenNames = new LinkedHashSet<>();
@@ -662,6 +1297,11 @@ public class SqliteRuleRepository {
         return expansions;
     }
 
+    /**
+     * Erweitert die Belegung einer konkreten Regel nur um zusätzlich im Test vorkommende
+     * Namen. Bereits gebundene Namen bleiben fest: Regel und Test sollen beispielsweise
+     * dieselbe {@code ~approx}-Variante verwenden, auch bei anderer Schreibweise des Namens.
+     */
     private List<Map<String, String>> testTokenExpansions(RuleTestTemplate test,
                                                           Map<String, String> ruleTokenValues,
                                                           Map<String, List<String>> tokenValuesByName) {
@@ -689,6 +1329,7 @@ public class SqliteRuleRepository {
         return expansions;
     }
 
+    /** Rekursiver Produktaufbau; jede Ergebnisbelegung ist eine eigene Kopie des Arbeitszustands. */
     private void expandTokenValues(List<Map.Entry<String, List<String>>> tokenValues,
                                    int index,
                                    Map<String, String> currentValues,
@@ -706,6 +1347,7 @@ public class SqliteRuleRepository {
         currentValues.remove(token.getKey());
     }
 
+    /** Sammelt normalisierte Namen in Fundreihenfolge; {@code null}-Felder werden ignoriert. */
     private void collectTokenNames(Set<String> tokenNames, String... values) {
         for (String value : values) {
             if (value == null) {
@@ -713,11 +1355,17 @@ public class SqliteRuleRepository {
             }
             Matcher matcher = TOKEN_REFERENCE.matcher(value);
             while (matcher.find()) {
-                tokenNames.add(matcher.group(1));
+                tokenNames.add(tokenLookupKey(matcher.group(1)));
             }
         }
     }
 
+    /**
+     * Ersetzt Referenzen in einem Durchlauf, ohne ersetzte Werte erneut zu expandieren.
+     * Unbelegte Referenzen bleiben im Text; die aufrufende Schicht prüft deren Auflösbarkeit.
+     * {@link Matcher#quoteReplacement(String)} bewahrt etwaige Dollarzeichen und Backslashes
+     * in Platzhalterwerten als Daten statt als reguläre Ausdrucksreferenzen.
+     */
     private String applyTokenValues(String value, Map<String, String> tokenValues) {
         if (value == null || tokenValues.isEmpty()) {
             return value;
@@ -732,6 +1380,12 @@ public class SqliteRuleRepository {
         return result.toString();
     }
 
+    /**
+     * Füllt {@code #}-Positionen aus einer gleich langen konkreten Eingabe, wenn dort
+     * Ziffern stehen und sämtliche übrigen Zeichen übereinstimmen. Andernfalls bleibt
+     * die Vorlage vollständig unverändert. Dies tokenisiert keine Monats-/Wochentagsnamen
+     * und ist keine Ausführung des Timeparsers.
+     */
     private String applyTestTokenizedTemplate(String tokenizedTemplate, String input) {
         if (tokenizedTemplate == null
                 || input == null
@@ -761,19 +1415,14 @@ public class SqliteRuleRepository {
     }
 
     private String lookupTokenValue(Map<String, String> tokenValues, String tokenName) {
-        String replacement = tokenValues.get(tokenName);
-        if (replacement != null) {
-            return replacement;
-        }
-
-        String canonicalTokenName = canonicalTokenName(tokenName);
-        replacement = tokenValues.get(canonicalTokenName);
+        String key = tokenLookupKey(tokenName);
+        String replacement = tokenValues.get(key);
         if (replacement != null) {
             return replacement;
         }
 
         for (Map.Entry<String, String> entry : tokenValues.entrySet()) {
-            if (canonicalTokenName(entry.getKey()).equals(canonicalTokenName)) {
+            if (tokenLookupKey(entry.getKey()).equals(key)) {
                 return entry.getValue();
             }
         }
@@ -801,6 +1450,12 @@ public class SqliteRuleRepository {
                 && !isBlank(test.getOutput());
     }
 
+    /**
+     * Einfache Zuordnungsprüfung für generierte Tests: gleiche UTF-16-Länge, Ziffern an
+     * {@code #}-Stellen und ansonsten identische Zeichen. Keine Priorisierung konkurrierender
+     * Regeln. {@code Character.isDigit} ist hier weiter gefasst als die ASCII-Prüfung des
+     * Feldvalidators; ein zugeordneter Test kann daher weiterhin einen Feldfehler haben.
+     */
     private boolean matchesInputMask(String inputMask, String tokenizedInput) {
         if (inputMask == null || tokenizedInput == null || inputMask.length() != tokenizedInput.length()) {
             return false;
@@ -819,31 +1474,6 @@ public class SqliteRuleRepository {
         return true;
     }
 
-    private List<Rule> exportRules() {
-        // Der Export soll eine einfache CSV liefern; generierte Duplikate werden bewusst ausgelassen.
-        Set<String> exportedSignatures = new LinkedHashSet<>();
-        return generatedRules().stream()
-                .filter(rule -> exportedSignatures.add(ruleSignature(rule)))
-                .toList();
-    }
-
-    private List<RuleTest> exportTests(List<Rule> exportedRules) {
-        // Tests werden nur exportiert, wenn ihre Regel ebenfalls im deduplizierten Export liegt.
-        Set<String> exportedRuleIds = new HashSet<>(exportedRules.stream().map(Rule::getId).toList());
-        Set<String> exportedSignatures = new LinkedHashSet<>();
-        return generatedTests().stream()
-                .filter(test -> exportedRuleIds.contains(test.getRuleId()))
-                .filter(test -> exportedSignatures.add(testSignature(test)))
-                .toList();
-    }
-
-    private List<RuleTest> exportTests() {
-        Set<String> exportedSignatures = new LinkedHashSet<>();
-        return generatedTests().stream()
-                .filter(test -> exportedSignatures.add(testSignature(test)))
-                .toList();
-    }
-
     private PlausibilityWarning.PlausibilityEntry plausibilityEntry(GeneratedRuleRow row) {
         return new PlausibilityWarning.PlausibilityEntry(
                 row.rule().getId(),
@@ -860,10 +1490,12 @@ public class SqliteRuleRepository {
         );
     }
 
+    /** Wertgleichheit einer Transformation; IDs und Gruppenzugehörigkeit zählen nicht mit. */
     private String ruleSignature(Rule rule) {
         return signature(rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
     }
 
+    /** Testwertgleichheit ohne IDs; der Aufrufer ergänzt den Regelkontext für Dublettenvergleiche. */
     private String testSignature(RuleTest test) {
         return signature(test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
     }
@@ -913,6 +1545,12 @@ public class SqliteRuleRepository {
                 .replace("\n", "↵");
     }
 
+    /**
+     * Verwendet möglichst die Vorlagen-ID für die erste Variante, danach Suffixe wie
+     * {@code R1_2}. Bereits in diesem Ergebnis belegte IDs werden durch Hochzählen umgangen.
+     * Die Zuordnung ist an Reihenfolge und Variantenanzahl gebunden und deshalb keine
+     * dauerhaft gespeicherte Identität; Oberflächenlinks verwenden die Vorlagen-ID.
+     */
     private String generatedId(String baseId, int expansionIndex, int expansionCount, Set<String> usedIds) {
         if (expansionCount == 1 && usedIds.add(baseId)) {
             return baseId;
@@ -927,6 +1565,7 @@ public class SqliteRuleRepository {
         return generatedId;
     }
 
+    /** Persistiert die Vorlagen in Formularreihenfolge; vorhandene fachliche Inhalte werden nicht expandiert. */
     private void saveRulesForGroup(long groupId, List<RuleGroupForm.RuleVariantForm> rules) {
         // IDs bleiben technische Schlüssel und werden nur bei neuen Formularzeilen automatisch vergeben.
         List<String> existingRuleIds = jdbcTemplate.queryForList("SELECT id FROM rules", String.class);
@@ -1046,6 +1685,7 @@ public class SqliteRuleRepository {
         return Files.isRegularFile(rulesFile) && Files.isRegularFile(testsFile);
     }
 
+    /** Entfernt die historische Spalte {@code normalized} durch Kopieren in das aktuelle Tests-Schema. */
     private void migrateTestsSchema() {
         if (!tableColumnExists("tests", "normalized")) {
             return;
@@ -1079,6 +1719,11 @@ public class SqliteRuleRepository {
                 .anyMatch(columnName::equalsIgnoreCase);
     }
 
+    /**
+     * Übernimmt Seed-Zeilen ohne die Formularvalidierung; pro importierter Regel entsteht
+     * eine Gruppe. Fachliche Altfehler bleiben damit untersuchbar und werden später im
+     * Plausibilitätscheck sichtbar. SQLite-Schlüssel- und Schemakonflikte sind davon unabhängig.
+     */
     private void importCsv() {
         try {
             List<Rule> rules = readRules();
@@ -1189,6 +1834,7 @@ public class SqliteRuleRepository {
         return valuesByName.getOrDefault(tokenLookupKey(tokenName), List.of());
     }
 
+    /** Einheitlicher Schlüssel für Expansion und Abhängigkeiten: Aliasauflösung und {@code Locale.ROOT}. */
     private String tokenLookupKey(String tokenName) {
         return canonicalTokenName(tokenName).toLowerCase(Locale.ROOT);
     }
@@ -1201,6 +1847,7 @@ public class SqliteRuleRepository {
         return tokenName;
     }
 
+    /** Entfernt leere Zeilen, bewahrt aber reine Leerzeichen und deren fachlich relevante Position. */
     private List<String> splitValues(String values) {
         // Keine Trimmung: führende und folgende Leerzeichen sind fachlich relevante Token-Bestandteile.
         List<String> result = new ArrayList<>();
@@ -1260,6 +1907,7 @@ public class SqliteRuleRepository {
         return value == null || value.isBlank();
     }
 
+    /** Unexpandierte Regelwerte mit ihrer Herkunft; {@code groupId == 0} steht für eine neue Formulargruppe. */
     private record RuleTemplate(
             String id,
             long groupId,
@@ -1270,6 +1918,7 @@ public class SqliteRuleRepository {
     ) {
     }
 
+    /** Testvorlage mit Bezug auf eine Regelvorlage, nicht auf eine einzelne generierte Variante. */
     private record RuleTestTemplate(
             String id,
             String ruleId,
@@ -1280,6 +1929,11 @@ public class SqliteRuleRepository {
     ) {
     }
 
+    /**
+     * Konkrete Regel samt Rückverweis auf Vorlage und Gruppe. Die verwendete
+     * {@code tokenValues}-Belegung wird an ihre Testvorlagen weitergereicht;
+     * {@code expansionIndex} ist einsbasiert und beschreibt die aktuelle Expansion.
+     */
     private record GeneratedRuleRow(
             String templateId,
             long groupId,
@@ -1290,6 +1944,7 @@ public class SqliteRuleRepository {
     ) {
     }
 
+    /** Passende expandierte Testwerte vor der gemeinsamen Vergabe kollisionsfreier Test-IDs. */
     private record GeneratedTestCandidate(
             String templateId,
             String ruleId,

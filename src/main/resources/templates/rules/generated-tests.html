@@ -63,6 +63,13 @@
         </li>
     </ul>
 
+    <div th:if="${!#lists.isEmpty(plausibilityWarnings)}" class="alert alert-warning" role="alert">
+        <span th:text="${#lists.size(plausibilityWarnings)}">0</span> Hinweise im
+        <a th:href="@{/plausibility}" class="alert-link">Plausibilitätscheck</a>.
+        Nicht auflösbare Platzhalter können die Generierung einzelner Regeln oder Tests verhindern. Der Export bleibt möglich.
+    </div>
+    <p class="small text-secondary">Die hinterlegten Testfälle werden hier nicht im Timeparser ausgeführt. Das Export-ZIP enthält einen Prüfbericht.</p>
+
     <div class="table-responsive bg-body border rounded">
         <table id="generatedTestsTable" class="table table-hover align-middle mb-0">
             <thead class="table-success">
@@ -90,7 +97,6 @@
 </main>
 
 <script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
-<script th:src="@{/webjars/jquery/dist/jquery.min.js}"></script>
 <script th:src="@{/webjars/datatables.net/js/dataTables.min.js}"></script>
 <script th:src="@{/webjars/datatables.net-bs5/js/dataTables.bootstrap5.min.js}"></script>
 <script>
@@ -102,7 +108,7 @@
         infoFiltered: '(gefiltert aus _MAX_ Einträgen)',
         thousands: '.',
         loadingRecords: 'Wird geladen...',
-        processing: 'Bitte warten...',
+        processing: 'Verarbeitung läuft...',
         zeroRecords: 'Keine passenden Einträge gefunden',
         emptyTable: 'Keine Einträge vorhanden',
         paginate: {
@@ -118,10 +124,7 @@
     };
     new DataTable('#generatedTestsTable', {
         pageLength: 50,
-        lengthMenu: [
-            [50, 100, 250, 1000, -1],
-            ['50', '100', '250', '1000', 'Alle']
-        ],
+        lengthMenu: [50, 100, 250, 1000, {label: 'Alle', value: -1}],
         language
     });
 </script>

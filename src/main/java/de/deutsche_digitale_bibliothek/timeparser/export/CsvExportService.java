@@ -17,7 +17,20 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /**
- * Serialisiert bereits ausgewählte Regeln, Tests und Tokens in die Downloadformate.
+ * Serialisiert bereits ausgewählte Regeln, Tests und Platzhalter als CSV oder ZIP.
+ *
+ * <p>Der Service übernimmt weder Expansion noch Validierung oder Deduplizierung.
+ * Er erhält die Reihenfolge und Werte seiner Eingaben, einschließlich relevanter
+ * Leerzeichen. Für Regel- und Testdownloads bereitet das Repository die Zeilen
+ * über {@link ExportDatasetFactory} vor und verwendet denselben ExportSnapshot
+ * für CSV-Dateien und Prüfbericht.</p>
+ *
+ * <p>CSV-Dateien enthalten eine Kopfzeile, verwenden Kommas als Trennzeichen und
+ * UTF-8 als Zeichencodierung. Apache Commons CSV übernimmt das Quoting von
+ * Anführungszeichen, Kommas und Zeilenumbrüchen in Feldwerten. Die technische
+ * Serialisierung trifft keine Aussage über die Ausführbarkeit im Timeparser.</p>
+ *
+ * @see de.deutsche_digitale_bibliothek.timeparser.model.ExportSnapshot
  */
 @Service
 public class CsvExportService {
@@ -26,12 +39,40 @@ public class CsvExportService {
     private static final String[] TEST_HEADERS = {"id", "for", "input", "tokenized", "output", "timespan"};
     private static final String[] TOKEN_HEADERS = {"name", "description", "value", "position"};
 
+    /**
+     * Erstellt das reine Zwei-Dateien-Paket ohne Prüfbericht.
+     *
+     * @param rules bereits ausgewählte Regeln
+     * @param tests bereits ausgewählte Tests mit passenden Regelreferenzen
+     * @return ZIP-Inhalt mit {@code rules.csv} und {@code tests.csv}
+     * @throws CsvRepositoryException wenn das Paket nicht serialisiert werden kann
+     */
     public byte[] rulesAndTestsZip(List<Rule> rules, List<RuleTest> tests) {
+        return rulesAndTestsZip(rules, tests, null);
+    }
+
+    /**
+     * Erstellt das gemeinsame Download-Paket mit einem optionalen Prüfbericht.
+     *
+     * <p>Ein Bericht wird auch dann geschrieben, wenn er leer ist. Nur
+     * {@code null} unterdrückt den Eintrag {@code pruefhinweise.txt}. Hinweise
+     * im Bericht verhindern die Erstellung des ZIP nicht.</p>
+     *
+     * @param rules bereits ausgewählte Regeln in Exportreihenfolge
+     * @param tests bereits ausgewählte Tests in Exportreihenfolge
+     * @param report Prüfhinweise als UTF-8-Text oder {@code null} für ein Paket ohne Bericht
+     * @return vollständiger ZIP-Inhalt; alle Einträge sind UTF-8-codiert
+     * @throws CsvRepositoryException wenn das Paket nicht serialisiert werden kann
+     */
+    public byte[] rulesAndTestsZip(List<Rule> rules, List<RuleTest> tests, String report) {
         try {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             try (ZipOutputStream zipOutputStream = new ZipOutputStream(outputStream, StandardCharsets.UTF_8)) {
                 writeZipEntry(zipOutputStream, "rules.csv", rulesCsvText(rules));
                 writeZipEntry(zipOutputStream, "tests.csv", testsCsvText(tests));
+                if (report != null) {
+                    writeZipEntry(zipOutputStream, "pruefhinweise.txt", report);
+                }
             }
             return outputStream.toByteArray();
         } catch (IOException exception) {
@@ -39,6 +80,17 @@ public class CsvExportService {
         }
     }
 
+    /**
+     * Exportiert die Platzhalterdefinitionen des Editors.
+     *
+     * <p>Pro Wert entsteht eine Zeile mit nullbasierter Position. Ein Platzhalter
+     * ohne Werte erhält eine Zeile mit leeren Wert- und Positionsfeldern. Dieses
+     * Format ist kein Ersatz für die {@code calendar_tokens.csv} des Timeparsers.</p>
+     *
+     * @param tokens Platzhalter mit geordneten Werten
+     * @return UTF-8-CSV mit den Spalten {@code name,description,value,position}
+     * @throws CsvRepositoryException wenn die CSV nicht serialisiert werden kann
+     */
     public byte[] tokensCsv(List<Token> tokens) {
         try {
             return tokenCsvText(tokens).getBytes(StandardCharsets.UTF_8);
@@ -47,6 +99,13 @@ public class CsvExportService {
         }
     }
 
+    /**
+     * Schreibt die für den Timeparser vorgesehene Regel-CSV ohne weitere Aufbereitung.
+     *
+     * @param rules bereits ausgewählte, üblicherweise expandierte Regeln
+     * @return UTF-8-CSV mit {@code id,inputMask,inputPattern,outputMask,outputPattern}
+     * @throws CsvRepositoryException wenn die CSV nicht serialisiert werden kann
+     */
     public byte[] rulesCsv(List<Rule> rules) {
         try {
             return rulesCsvText(rules).getBytes(StandardCharsets.UTF_8);
@@ -55,6 +114,16 @@ public class CsvExportService {
         }
     }
 
+    /**
+     * Schreibt die Test-CSV; die Eigenschaft {@code ruleId} wird in die Spalte {@code for} übertragen.
+     *
+     * <p>Die erwarteten Zwischen- und Endwerte werden unverändert serialisiert.
+     * Die Methode führt diese Beispiele nicht aus und prüft keine Regelreferenzen.</p>
+     *
+     * @param tests bereits ausgewählte Tests mit den Regel-IDs des zugehörigen Regelexports
+     * @return UTF-8-CSV mit {@code id,for,input,tokenized,output,timespan}
+     * @throws CsvRepositoryException wenn die CSV nicht serialisiert werden kann
+     */
     public byte[] testsCsv(List<RuleTest> tests) {
         try {
             return testsCsvText(tests).getBytes(StandardCharsets.UTF_8);

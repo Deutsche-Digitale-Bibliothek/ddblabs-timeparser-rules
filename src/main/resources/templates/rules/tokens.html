@@ -44,6 +44,14 @@
         </a>
     </div>
 
+    <div th:if="${tokenAffectedGroups != null and !#lists.isEmpty(tokenAffectedGroups)}" class="alert alert-warning" role="status">
+        <p class="mb-2">Die Platzhalteränderung betrifft diese Regelgruppen. Eine erneute Prüfung der erzeugten Varianten und ihrer Plausibilität ist erforderlich.</p>
+        <div class="d-flex flex-wrap gap-2">
+            <a th:each="group : ${tokenAffectedGroups}" th:href="@{/rules/{id}(id=${group.id})}" th:text="${group.name}"></a>
+        </div>
+        <a th:href="@{/plausibility}">Plausibilitätscheck öffnen</a>
+    </div>
+
     <section class="bg-body border rounded p-3 p-lg-4 mb-4">
         <h2 class="h5 mb-3" th:text="${tokenForm.id == null} ? 'Platzhalter hinzufügen' : 'Platzhalter bearbeiten'">Platzhalter hinzufügen</h2>
         <div class="alert alert-info py-2" role="note">
@@ -116,16 +124,12 @@
 </main>
 
 <script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
-<script th:src="@{/webjars/jquery/dist/jquery.min.js}"></script>
 <script th:src="@{/webjars/datatables.net/js/dataTables.min.js}"></script>
 <script th:src="@{/webjars/datatables.net-bs5/js/dataTables.bootstrap5.min.js}"></script>
 <script>
     new DataTable('#tokensTable', {
         pageLength: 50,
-        lengthMenu: [
-            [50, 100, 250, 1000, -1],
-            ['50', '100', '250', '1000', 'Alle']
-        ],
+        lengthMenu: [50, 100, 250, 1000, {label: 'Alle', value: -1}],
         language: {
             search: 'Suchen:',
             lengthMenu: '_MENU_ Einträge pro Seite',

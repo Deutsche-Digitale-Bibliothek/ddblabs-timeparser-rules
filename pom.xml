@@ -7,19 +7,21 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
+        <version>4.1.2</version>
         <relativePath/>
     </parent>
 
     <groupId>de.deutsche-digitale-bibliothek</groupId>
     <artifactId>ddblabs-timeparser-rules</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>0.0.1</version>
     <name>ddblabs-timeparser-rules</name>
     <description>Frontend for editing timeparser rules and tests</description>
 
     <properties>
         <java.version>25</java.version>
-        <lombok.version>1.18.46</lombok.version>
+        <lombok.version>1.18.48</lombok.version>
+        <datatables.version>3.1.5</datatables.version>
+        <datatables-bootstrap5.version>3.1.4</datatables-bootstrap5.version>
     </properties>
 
     <dependencies>
@@ -67,23 +69,12 @@
         <dependency>
             <groupId>org.webjars.npm</groupId>
             <artifactId>bootstrap-icons</artifactId>
-            <version>1.13.1</version>
-        </dependency>
-        <dependency>
-            <groupId>org.webjars.npm</groupId>
-            <artifactId>jquery</artifactId>
-            <version>4.0.0</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>*</groupId>
-                    <artifactId>*</artifactId>
-                </exclusion>
-            </exclusions>
+            <version>1.13.2</version>
         </dependency>
         <dependency>
             <groupId>org.webjars.npm</groupId>
             <artifactId>datatables.net</artifactId>
-            <version>2.3.8</version>
+            <version>${datatables.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>
@@ -94,7 +85,7 @@
         <dependency>
             <groupId>org.webjars.npm</groupId>
             <artifactId>datatables.net-bs5</artifactId>
-            <version>2.3.8</version>
+            <version>${datatables-bootstrap5.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>

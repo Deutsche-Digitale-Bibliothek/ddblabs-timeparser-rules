@@ -52,6 +52,8 @@
         </div>
     </div>
 
+    <p class="small text-secondary">Vor dem Export wird die Plausibilität geprüft. Die hinterlegten Testfälle werden hier nicht im Timeparser ausgeführt. Bei Hinweisen bleibt der Download möglich; das ZIP enthält einen Prüfbericht.</p>
+
     <div class="table-responsive bg-body border rounded">
         <table id="groupsTable" class="table table-hover align-middle mb-0">
             <thead class="table-light">
@@ -96,7 +98,6 @@
 </main>
 
 <script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
-<script th:src="@{/webjars/jquery/dist/jquery.min.js}"></script>
 <script th:src="@{/webjars/datatables.net/js/dataTables.min.js}"></script>
 <script th:src="@{/webjars/datatables.net-bs5/js/dataTables.bootstrap5.min.js}"></script>
 <script>
@@ -109,7 +110,7 @@
         infoPostFix: '',
         thousands: '.',
         loadingRecords: 'Wird geladen...',
-        processing: 'Bitte warten...',
+        processing: 'Verarbeitung läuft...',
         zeroRecords: 'Keine passenden Einträge gefunden',
         emptyTable: 'Keine Einträge vorhanden',
         paginate: {
@@ -125,10 +126,7 @@
     };
     new DataTable('#groupsTable', {
         pageLength: 50,
-        lengthMenu: [
-            [50, 100, 250, 1000, -1],
-            ['50', '100', '250', '1000', 'Alle']
-        ],
+        lengthMenu: [50, 100, 250, 1000, {label: 'Alle', value: -1}],
         language,
         columnDefs: [{orderable: false, searchable: false, targets: 5}],
     });

@@ -10,7 +10,7 @@ Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale 
 - zugehörige Regeln und Tests direkt in der Detailansicht pflegen
 - IDs und Beziehungen automatisch vergeben
 - Platzhalter/Tokens wie `~approx` verwalten und in Regeln/Tests expandieren
-- Plausibilitätscheck für doppelte Regeln und Tests
+- gemeinsame Validierung beim Anlegen, Bearbeiten, in der Vorschau und im Plausibilitätscheck
 - sichtbare Darstellung relevanter Leerzeichen in Token-Werten und Plausibilitätsmeldungen
 - CSV-Export als Download-ZIP für `rules.csv` und `tests.csv`
 - separater CSV-Export für Tokens
@@ -20,8 +20,10 @@ Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale 
 
 ## Architektur
 
+Für die Pflege des Codes beschreibt der [Entwicklerleitfaden](docs/entwicklung.md) die Aufrufabläufe, Vorlagen- und Variantenmodelle, Validierungsverträge, Platzhalterexpansion sowie die Export- und Testgrenzen. Die Klassen- und Paket-Javadocs dokumentieren die jeweiligen Schnittstellen direkt am Code.
+
 - **Backend:** Java 25, Spring Boot, Spring MVC, Spring Security, Spring JDBC
-- **Frontend:** Thymeleaf, Bootstrap, Bootstrap Icons, DataTables
+- **Frontend:** Thymeleaf, Bootstrap, Bootstrap Icons, DataTables 3 (ohne jQuery)
 - **Persistenz:** SQLite über `sqlite-jdbc`
 - **CSV:** Apache Commons CSV
 
@@ -80,7 +82,7 @@ Jede Regel besteht aus Eingabe- und Ausgabe-Maske sowie den passenden Mustern. M
 
 | Maskenzeichen | Musterzeichen | Bedeutung |
 | --- | --- | --- |
-| `#` | beliebiger Buchstabe außer `M` und `G` | eine Ziffer; mehrere gleiche Musterbuchstaben bilden eine Variable, z. B. `####` / `JJJJ` |
+| `#` | Buchstabe | eine Ziffer; mehrere gleiche Musterbuchstaben bilden eine Variable, z. B. `####` / `JJJJ` |
 | `MM` | zwei gleiche Buchstaben | Monatsvariable nach der Tokenisierung, z. B. `MM` / `MM` |
 | `GG` | zwei gleiche Buchstaben | Wochentagsvariable nach der Tokenisierung |
 | sonstiges Zeichen | gleiches Zeichen | Literal, muss exakt passen; das gilt auch für Leerzeichen |
@@ -95,6 +97,14 @@ Jede Regel besteht aus Eingabe- und Ausgabe-Maske sowie den passenden Mustern. M
 | `TT` | zweistelliger Tag |
 | `MM` | Monatsvariable |
 | `WWWW`, `XXXX`, `YYYY`, `ZZZZ` | weitere Jahresvariablen in Bereichen oder zusammengesetzten Ausdrücken |
+
+Jeder Variablenname darf im Eingabemuster nur einmal definiert sein. Maßgeblich ist der Buchstabe, unabhängig von der Länge: `JJJJ/JJJJ` und `JJJJ/JJ` sind als Eingabemuster ungültig, `JJJJ/ZZZZ` ist gültig. In der Ausgabe darf dieselbe Eingabevariable mehrfach verwendet werden, z. B. `JJJ0/JJJ9` für `195?` → `1950/1959`. Jede Verwendung muss im Eingabemuster definiert sein und darf höchstens dessen Variablenlänge haben. Buchstaben in Literaltext zählen nicht als Variablen. Führende Nullen werden als Literale ergänzt, beispielsweise `###` / `JJJ` nach `0###` / `0JJJ`.
+
+Die gemeinsame Prüfung erfasst außerdem Pflichtfelder, fehlende Regeln oder Tests, Literal- und Längenfehler, Testwerte passend zu den Masken, ISO-Zeiträume, unbekannte Platzhalter sowie doppelte Regeln und Tests. Sie prüft die konkreten Varianten nach der Platzhalterexpansion; Fehler in bestehenden oder importierten Gruppen erscheinen mit einer Verknüpfung zur betroffenen Regel im Plausibilitätscheck.
+
+Zusätzlich erscheinen unverbindliche Hinweise auf erzeugte Varianten ohne passenden Test und auf mögliche Überschneidungen unterschiedlicher Masken mit gleicher Anzahl von `#`-Stellen. Diese Hinweise verhindern das Speichern nicht. Die Überschneidungsprüfung betrachtet Ziffern, Literale und Leerzeichen; sie bildet nicht die vollständige Auswahl- und Priorisierungslogik des Timeparsers nach.
+
+Die eingetragenen Testfälle werden **nicht ausgeführt**. Der Editor prüft weder die tatsächliche Tokenisierung noch den Zusammenhang zwischen erwarteter Ausgabe und Zeitraum. Eine Integration der echten Parser-Verarbeitung ist für eine spätere gemeinsame Library vorgesehen.
 
 Beispiel:
 
@@ -165,6 +175,22 @@ Tests/Build:
 ```bash
 mvn clean test
 ```
+
+### Kompatibilität mit dem Timeparser
+
+Die CSV-Spalten, Masken-/Mustersemantik und Variablenübertragung sind mit dem benachbarten Projekt `../ddblabs-timeparser` abgeglichen. Zwei zusätzliche Einschränkungen verhindern Datenverlust beim Einlesen: Eingabemasken müssen eindeutig sein, da der Timeparser nur die erste Regel je Eingabemaske verwendet. Führende und abschließende Leerzeichen in exportierten Masken, Mustern und Testwerten werden beanstandet, da der CSV-Leser des Timeparsers diese entfernt. Innere Leerzeichen bleiben erhalten.
+
+Eingabevariablen müssen eindeutig definiert sein; Ausgabevariablen dürfen wie im Timeparser mehrfach verwendet werden. Der Plausibilitätscheck verändert keine Bestandsdaten. Änderungen und Löschungen von Platzhaltern zeigen die betroffenen Regelgruppen an; der aktuelle Stand wird vor jedem Export erneut geprüft.
+
+### Export mit Prüfhinweisen
+
+Ein Export bleibt auch bei Plausibilitätsfehlern möglich. Bei Befunden zeigt die Anwendung zunächst die Hinweise und einen Link „Trotz Hinweisen herunterladen“. Alle Downloads enthalten die Header `X-Timeparser-Plausibility-Warnings` (Anzahl) und `X-Timeparser-Validation: plausibility-only`. Für automatisierte Abrufe bleibt der direkte Download mit `?download=true` verfügbar.
+
+ZIP und CSV-Einzeldownloads verwenden dieselbe Aufbereitung: Exakte Regeldubletten werden zusammengeführt und ihre unterschiedlichen Tests auf die verbleibende Regel-ID umgehängt. Tests werden je exportierter Regel dedupliziert. Verschiedene Transformationen bei gleicher Eingabemaske bleiben mit Warnung enthalten; der Timeparser wird davon nur die erste laden. Das ZIP enthält zusätzlich `pruefhinweise.txt` mit den Befunden und den Grenzen der Prüfung.
+
+Vorlagen mit nicht auflösbaren Platzhaltern können nicht in konkrete Zeilen übersetzt werden. Diese Regeln bzw. Tests werden im Export ausgelassen und im Prüfbericht ausdrücklich genannt. Andere fehlerhafte, aber expandierbare Zeilen bleiben entsprechend dem Exportwunsch enthalten. Die erzeugten Listen und der Prüfbericht beziehen sich innerhalb eines Downloads auf denselben Datenbankstand. Für zusammengehörige Regeln und Tests aus einem gemeinsamen Stand empfiehlt sich das ZIP; zwischen zwei getrennten Downloads können Daten geändert worden sein.
+
+Der separate `tokens.csv`-Export dient dem Editor und ersetzt nicht die `calendar_tokens.csv` des Timeparsers. Die tatsächliche Parser-Verarbeitung soll später über eine gemeinsame Library angebunden werden.
 
 ## Konfiguration
 
