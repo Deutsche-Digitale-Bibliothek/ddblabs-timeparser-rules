@@ -6,6 +6,9 @@ on:
       - main
     tags:
       - "v*.*.*"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -28,13 +31,16 @@ jobs:
           java-version: "25"
           cache: maven
 
-      - name: Test
-        run: mvn -B clean test
+      - name: Verify tests and executable JAR
+        run: |
+          mvn -B --no-transfer-progress clean verify
+          test -s target/ddblabs-timeparser-rules.jar
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4.4.1
 
       - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
         uses: docker/login-action@v4.7.0
         with:
           registry: ghcr.io
@@ -54,14 +60,17 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
+            type=ref,event=pr
             type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and publish container
+      - name: Build container and publish when enabled
         uses: docker/build-push-action@v7.4.0
         with:
           context: .
           file: ./Dockerfile
-          push: true
+          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

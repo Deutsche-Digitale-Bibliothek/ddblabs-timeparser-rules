@@ -176,6 +176,15 @@ Tests/Build:
 mvn clean test
 ```
 
+Das ausführbare JAR wird mit Tests und Packaging-Prüfung erzeugt:
+
+```bash
+mvn clean verify
+java -jar target/ddblabs-timeparser-rules.jar
+```
+
+Der Dateiname `target/ddblabs-timeparser-rules.jar` enthält keine Versionsnummer. Maven verwendet dafür die `artifactId` als `finalName`; ein Wechsel der Projektversion erfordert keine Anpassung der Startbefehle oder des Dockerfiles.
+
 ### Kompatibilität mit dem Timeparser
 
 Die CSV-Spalten, Masken-/Mustersemantik und Variablenübertragung sind mit dem benachbarten Projekt `../ddblabs-timeparser` abgeglichen. Zwei zusätzliche Einschränkungen verhindern Datenverlust beim Einlesen: Eingabemasken müssen eindeutig sein, da der Timeparser nur die erste Regel je Eingabemaske verwendet. Führende und abschließende Leerzeichen in exportierten Masken, Mustern und Testwerten werden beanstandet, da der CSV-Leser des Timeparsers diese entfernt. Innere Leerzeichen bleiben erhalten.
@@ -278,13 +287,16 @@ Die GitHub Action `.github/workflows/container.yml` baut und veröffentlicht das
 ghcr.io/<owner>/<repository>
 ```
 
-Der Workflow läuft bei:
+Der Workflow prüft Tests, JAR-Packaging und Docker-Build bei:
 
 - Push auf `main`
 - Tags im Format `v*.*.*`
 - manueller Ausführung über `workflow_dispatch`
+- Pull Requests nach `main`
 
-Veröffentlichte Tags werden aus Branch, Git-Tag und Commit-SHA erzeugt. Auf dem Default-Branch wird zusätzlich `latest` gesetzt.
+Vor dem Docker-Build wird `mvn clean verify` ausgeführt und das erzeugte `target/ddblabs-timeparser-rules.jar` geprüft. Der mehrstufige Docker-Build bleibt unabhängig davon auch lokal mit `docker build` verwendbar und baut die Anwendung selbst.
+
+Bei Pull Requests findet ausschließlich eine Prüfung statt; GHCR-Anmeldung und Veröffentlichung werden übersprungen. Bei Pushes und manueller Ausführung werden Images veröffentlicht. Die Tags werden aus Branch, Git-Tag und Commit-SHA erzeugt. Auf dem Default-Branch wird zusätzlich `latest` gesetzt. Der Docker-Build verwendet den GitHub-Actions-Layercache.
 
 ## Betriebshinweise
 

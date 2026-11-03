@@ -17,7 +17,7 @@ RUN groupadd --system --gid 10001 app \
 
 WORKDIR /app
 
-COPY --from=build --chown=app:app /workspace/target/ddblabs-timeparser-rules-0.0.1-SNAPSHOT.jar /app/app.jar
+COPY --from=build --chown=app:app /workspace/target/ddblabs-timeparser-rules.jar /app/app.jar
 
 ENV TIMEPARSER_SERVER_PORT=8080
 ENV TIMEPARSER_URL_PREFIX=/app/timeparser-rules
