@@ -224,7 +224,37 @@ public final class RulePatternValidator {
      * @param field betroffener Feldname oder Formularpfad, z. B. {@code inputPattern}
      * @param code maschinenlesbarer Prüfcode, z. B. {@code variable.duplicate}
      * @param message konkrete, für die Oberfläche bestimmte Erläuterung
+     * @param relatedRules andere betroffene Regeln, etwa die bereits vorhandene Dublette;
+     *                     die Liste wird unveränderbar kopiert
      */
-    public record Issue(String field, String code, String message) {
+    public record Issue(String field, String code, String message, List<RelatedRule> relatedRules) {
+
+        /**
+         * Erstellt einen Feldbefund ohne zusätzliche Regelfundstellen.
+         *
+         * @param field betroffener Feldname oder Formularpfad
+         * @param code maschinenlesbarer Prüfcode
+         * @param message Erläuterung für die Oberfläche
+         */
+        public Issue(String field, String code, String message) {
+            this(field, code, message, List.of());
+        }
+
+        /** Übernimmt die Fundstellen unabhängig von einer veränderlichen Aufruferliste. */
+        public Issue {
+            relatedRules = List.copyOf(relatedRules);
+        }
+    }
+
+    /**
+     * Verweist von einem Befund auf eine konkrete Regel und ihre bearbeitbare Vorlage.
+     * Die generierte ID kann ein Variantensuffix tragen; Navigation verwendet dagegen
+     * die Vorlagen-ID, damit der Link den vorhandenen HTML-Anker der Detailseite trifft.
+     *
+     * @param id angezeigte ID der konkreten generierten Regel
+     * @param groupId gespeicherte Regelgruppe; {@code 0} bezeichnet einen neuen Entwurf
+     * @param templateId ID der zugrunde liegenden bearbeitbaren Regelvorlage
+     */
+    public record RelatedRule(String id, long groupId, String templateId) {
     }
 }

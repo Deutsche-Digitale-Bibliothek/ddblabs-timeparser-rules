@@ -70,6 +70,10 @@ Speicherfehler werden einmal je Feldpfad und Prüfcode ausgegeben; der zuerst er
 
 Die Prüfung einer bearbeiteten Gruppe vergleicht sie mit anderen Gruppen und dem neuen Formularstand. Ihre bisherige gespeicherte Fassung wird ausgenommen, damit unveränderte Daten nicht als Dubletten ihrer eigenen Fassung gelten.
 
+Der Gesamtcheck lädt Gruppenmetadaten, Regel- und Testvorlagen sowie Platzhalter in einer festen Anzahl von Datenbankabfragen. Ein aufrufgebundener `ValidationContext` expandiert den Vergleichsbestand einmal und hält Suchindizes für Eingabemasken, Gruppen und Testsignaturen bereit. Die Formularstruktur wird aus den bereits gelesenen Vorlagen aufgebaut. Mögliche Maskenüberschneidungen werden nur innerhalb kompatibler Zeichenstrukturen und gleicher Anzahl von `#`-Stellen verglichen; `RuleMaskOverlap.witness` entscheidet weiterhin über den tatsächlichen statischen Hinweis. Es gibt keinen Cache zwischen Aufrufen, sodass Regel- und Platzhalteränderungen unmittelbar berücksichtigt werden. Der Export verwendet dieselbe Aufbereitung.
+
+Bei generierten Regeldubletten und Transformationskonflikten nennt der Feldfehler die vorhandene Regel-ID, Regelgruppe und Vorlage. `Issue.relatedRules` bewahrt diese Fundstellen strukturiert; die Plausibilitätsansicht verlinkt sowohl die geprüfte Regel als auch die Fundstelle. Der Link verwendet die Vorlagen-ID, auch wenn die angezeigte generierte ID ein Variantensuffix enthält.
+
 ## Masken- und Testverträge
 
 Masken und Muster werden mit Java-`char`-Indizes und damit UTF-16-Längen verglichen. Gleiche Musterbuchstaben unter zusammenhängenden `#`-Stellen bilden eine Variable. `MM` und `GG` bilden Zweierpaare für Monats- und Wochentagsvariablen; sonstige Zeichen sind Literale. Der Variablenname ist der Buchstabe, nicht die gesamte Zeichenfolge.

@@ -119,6 +119,35 @@ class TimeparserRulesApplicationTest {
     }
 
     @Test
+    void rendersDuplicateLocationsWithLinksToBothRuleTemplates() throws Exception {
+        var form = new RuleGroupForm();
+        form.setName("Dublettenfundstelle");
+        var rule = new RuleGroupForm.RuleVariantForm();
+        rule.setId("RLocationSource");
+        rule.setInputMask("####");
+        rule.setInputPattern("JJJJ");
+        rule.setOutputMask("####");
+        rule.setOutputPattern("JJJJ");
+        form.getRules().add(rule);
+        long existingGroupId = repository.createGroup(form);
+        rule.setId("RLocationCopy");
+        long duplicateGroupId = repository.createGroup(form);
+
+        try {
+            MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
+                    .perform(get("/app/timeparser-rules/plausibility").contextPath("/app/timeparser-rules"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string(containsString("Diese generierte Regel ist bereits vorhanden. Fundstelle: Regel RLocationSource")))
+                    .andExpect(content().string(containsString("Regelgruppe " + existingGroupId)))
+                    .andExpect(content().string(containsString("href=\"/app/timeparser-rules/rules/" + existingGroupId + "#rule-RLocationSource\"")))
+                    .andExpect(content().string(containsString("href=\"/app/timeparser-rules/rules/" + duplicateGroupId + "#rule-RLocationCopy\"")));
+        } finally {
+            repository.deleteGroup(duplicateGroupId);
+            repository.deleteGroup(existingGroupId);
+        }
+    }
+
+    @Test
     void rendersRequiredRuleMessageForBlankPreview() throws Exception {
         MockMvcBuilders.webAppContextSetup(webApplicationContext).build()
                 .perform(post("/rules/new/preview"))
