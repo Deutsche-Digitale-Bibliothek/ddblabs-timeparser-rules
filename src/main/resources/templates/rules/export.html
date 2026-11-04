@@ -9,22 +9,7 @@
     <link rel="stylesheet" th:href="@{/webjars/bootstrap-icons/font/bootstrap-icons.css}">
 </head>
 <body class="bg-body-tertiary">
-<nav class="navbar navbar-expand-lg bg-body border-bottom">
-    <div class="container">
-        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
-            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
-        </a>
-        <div class="navbar-nav">
-            <a class="nav-link" th:href="@{/rules}">Regelgruppen</a>
-            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
-            <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
-            <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
-            <form class="d-inline" th:action="@{/logout}" method="post">
-                <button type="submit" class="nav-link btn btn-link">Abmelden</button>
-            </form>
-        </div>
-    </div>
-</nav>
+<nav th:replace="~{fragments/navigation :: navigation('')}"></nav>
 
 <main class="container py-4">
     <h1 class="h3" th:text="${exportTitle}">Export</h1>

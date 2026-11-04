@@ -5,7 +5,7 @@ import java.util.List;
 /**
  * Darstellbarer Befund einer statischen Prüfung mit optionalen Fundstellen und Feldwerten.
  *
- * <p>Die Plausibilitätsansicht bündelt hier sowohl Fehler, die beim Speichern
+ * <p>Die Plausibilitätsansicht bündelt hier sowohl Fehler, die beim regulären Speichern
  * zurückgewiesen würden, als auch unverbindliche Hinweise, etwa fehlende Tests
  * je expandierter Variante. Der Typ bezeichnet einen Bereich und ist keine
  * Schweregradangabe. Ein Befund sperrt den Export nicht.</p>

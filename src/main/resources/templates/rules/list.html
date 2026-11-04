@@ -10,22 +10,7 @@
     <link rel="stylesheet" th:href="@{/webjars/datatables.net-bs5/css/dataTables.bootstrap5.min.css}">
 </head>
 <body class="bg-body-tertiary">
-<nav class="navbar navbar-expand-lg bg-body border-bottom">
-    <div class="container">
-        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
-            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
-        </a>
-        <div class="navbar-nav">
-            <a class="nav-link active" th:href="@{/rules}">Regelgruppen</a>
-            <a class="nav-link" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
-            <a class="nav-link" th:href="@{/tokens}">Platzhalter</a>
-            <a class="nav-link" th:href="@{/plausibility}">Plausibilität</a>
-            <form class="d-inline" th:action="@{/logout}" method="post">
-                <button type="submit" class="nav-link btn btn-link">Abmelden</button>
-            </form>
-        </div>
-    </div>
-</nav>
+<nav th:replace="~{fragments/navigation :: navigation('rules')}"></nav>
 
 <main class="container py-4">
     <div th:if="${message}" class="alert alert-success alert-dismissible fade show" role="alert">
@@ -55,7 +40,7 @@
     <p class="small text-secondary">Vor dem Export wird die Plausibilität geprüft. Die hinterlegten Testfälle werden hier nicht im Timeparser ausgeführt. Bei Hinweisen bleibt der Download möglich; das ZIP enthält einen Prüfbericht.</p>
 
     <div class="table-responsive bg-body border rounded">
-        <table id="groupsTable" class="table table-hover align-middle mb-0">
+        <table id="groupsTable" data-rule-table data-table-language="full" data-action-column="5" class="table table-hover align-middle mb-0">
             <thead class="table-light">
             <tr>
                 <th scope="col">ID</th>
@@ -100,36 +85,6 @@
 <script th:src="@{/webjars/bootstrap/js/bootstrap.bundle.min.js}"></script>
 <script th:src="@{/webjars/datatables.net/js/dataTables.min.js}"></script>
 <script th:src="@{/webjars/datatables.net-bs5/js/dataTables.bootstrap5.min.js}"></script>
-<script>
-    const language = {
-        search: 'Suchen:',
-        lengthMenu: '_MENU_ Einträge pro Seite',
-        info: '_START_ bis _END_ von _TOTAL_ Einträgen',
-        infoEmpty: 'Keine Einträge vorhanden',
-        infoFiltered: '(gefiltert aus _MAX_ Einträgen)',
-        infoPostFix: '',
-        thousands: '.',
-        loadingRecords: 'Wird geladen...',
-        processing: 'Verarbeitung läuft...',
-        zeroRecords: 'Keine passenden Einträge gefunden',
-        emptyTable: 'Keine Einträge vorhanden',
-        paginate: {
-            first: 'Erste',
-            previous: 'Zurück',
-            next: 'Weiter',
-            last: 'Letzte'
-        },
-        aria: {
-            orderable: 'Sortierung für diese Spalte aktivieren',
-            orderableReverse: 'Umgekehrte Sortierung für diese Spalte aktivieren'
-        }
-    };
-    new DataTable('#groupsTable', {
-        pageLength: 50,
-        lengthMenu: [50, 100, 250, 1000, {label: 'Alle', value: -1}],
-        language,
-        columnDefs: [{orderable: false, searchable: false, targets: 5}],
-    });
-</script>
+<script th:src="@{/js/rule-tables.js}"></script>
 </body>
 </html>

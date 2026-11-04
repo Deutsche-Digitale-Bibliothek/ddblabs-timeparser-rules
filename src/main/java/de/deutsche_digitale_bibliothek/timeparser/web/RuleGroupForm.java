@@ -1,7 +1,5 @@
 package de.deutsche_digitale_bibliothek.timeparser.web;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -24,8 +22,9 @@ import java.util.List;
  *
  * <p>Die Listen-Getter geben die bearbeitbaren Listen selbst zurück und ersetzen
  * {@code null} durch leere Listen. Die fachlichen Pflichtfelder und Beziehungen
- * prüft der gemeinsame Formvalidator; {@link Valid} leitet die Bean-Validation
- * in die verschachtelten Formularobjekte weiter.</p>
+ * prüft ausschließlich der gemeinsame Formvalidator. Dadurch verwenden Laden,
+ * Vorschau und Speichern dieselben Regeln und Fehlermeldungen; eine zweite
+ * Bean-Validation auf diesem Modell ist nicht erforderlich.</p>
  */
 @Getter
 @Setter
@@ -34,13 +33,18 @@ public class RuleGroupForm {
     /** Gespeicherte Gruppen-ID oder {@code null} für einen neuen Entwurf. */
     private Long id;
 
-    @NotBlank
     private String name = "";
 
     private String description = "";
 
+    /** Zustimmung nur für den ausdrücklich gewählten Speichervorgang; wird nicht persistiert. */
+    private boolean saveInvalid;
+
+    /** Signierter Prüfstand der zuletzt angezeigten Fehler; gehört nicht zu den Regelvorlagen. */
+    private String validationReview = "";
+
     /** Regelreihenfolge der Oberfläche; Listenindizes bilden auch die Fehlerpfade. */
-    private List<@Valid RuleVariantForm> rules = new ArrayList<>();
+    private List<RuleVariantForm> rules = new ArrayList<>();
 
     /**
      * Liefert die veränderbare Regelliste und normalisiert einen fehlenden Wert.
@@ -88,7 +92,7 @@ public class RuleGroupForm {
         /** Verwendung der Eingabevariablen in der Ausgabe, z. B. {@code JJJJ-MM}. */
         private String outputPattern = "";
 
-        private List<@Valid TestForm> tests = new ArrayList<>();
+        private List<TestForm> tests = new ArrayList<>();
 
         /**
          * Liefert die veränderbare Testliste und normalisiert {@code null}.

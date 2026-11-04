@@ -3,12 +3,13 @@ package de.deutsche_digitale_bibliothek.timeparser.web;
 import de.deutsche_digitale_bibliothek.timeparser.model.RulePreview;
 import de.deutsche_digitale_bibliothek.timeparser.repository.CsvRepositoryException;
 import de.deutsche_digitale_bibliothek.timeparser.repository.SqliteRuleRepository;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
+import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -31,8 +32,12 @@ import java.util.List;
  *
  * <p>Speichern und Vorschau entfernen zunächst vollständig leere neue Zeilen
  * und verwenden danach dieselben fachlichen Fehlerprüfungen. Fehler werden über
- * {@link BindingResult} an die betroffenen Formularfelder gebunden. Ergänzende
- * Hinweise und expandierte Beispiele liefert {@link #addFormPreview(Model, RuleGroupForm)}; diese
+ * {@link BindingResult} an die betroffenen Formularfelder gebunden; auch das
+ * Öffnen gespeicherter Vorlagen führt diese Prüfungen aus. Plausibilitätsfehler
+ * dürfen nur nach ausdrücklicher Zustimmung zum signierten Formular- und
+ * Fehlerstand gespeichert werden. Technische Bindungsfehler bleiben blockierend.
+ * Ergänzende Hinweise und expandierte Beispiele liefert
+ * {@link #addFormPreview(Model, RuleGroupForm)}; diese
  * Vorschau führt keine Testfälle im Timeparser aus.</p>
  *
  * <p>Erfolgreiche Schreiboperationen folgen dem Muster Post/Redirect/Get und
@@ -45,11 +50,13 @@ import java.util.List;
 @RequiredArgsConstructor
 public class RuleController {
 
+    private static final String DETAIL_VIEW = "rules/detail";
     private static final String DUPLICATE_HINT = "Die Kopie wurde eingefügt. Vor dem Speichern ist eine Anpassung erforderlich, damit keine Dublette entsteht.";
 
     private final SqliteRuleRepository repository;
     private final RuleGroupFormEditor formEditor;
     private final RuleGroupFormValidator formValidator;
+    private final InvalidRuleSaveReview invalidSaveReview = new InvalidRuleSaveReview();
 
     /**
      * Zeigt ein noch nicht gespeichertes Formular mit einer Regel- und Testzeile.
@@ -61,9 +68,7 @@ public class RuleController {
     public String newGroup(Model model) {
         RuleGroupForm groupForm = formEditor.newGroupForm();
         model.addAttribute("groupForm", groupForm);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Leitet den bisherigen Einstieg zum Formular für eine neue Gruppe um. */
@@ -74,7 +79,8 @@ public class RuleController {
 
     /**
      * Bereinigt und validiert eine neue Gruppe, bevor ihre IDs vergeben werden.
-     * Bei Fehlern bleibt die Benutzereingabe in der Detailansicht erhalten.
+     * Bei Fehlern bleibt die Benutzereingabe in der Detailansicht erhalten;
+     * die ausdrückliche Freigabe eines unveränderten Prüfstands erlaubt das Speichern.
      *
      * @param groupForm gebundene Regel- und Testvorlagen
      * @param bindingResult Bindungs- und Validierungsfehler des Formulars
@@ -83,20 +89,21 @@ public class RuleController {
      * @return Detailansicht bei Fehlern, sonst Weiterleitung zur gespeicherten Gruppe
      */
     @PostMapping("/rules/new")
-    public String createGroup(@Valid @ModelAttribute("groupForm") RuleGroupForm groupForm,
+    public String createGroup(@ModelAttribute("groupForm") RuleGroupForm groupForm,
                               BindingResult bindingResult,
                               Model model,
                               RedirectAttributes redirectAttributes) {
+        groupForm.setId(null);
         formEditor.removeBlankRows(groupForm);
         formValidator.validateForSave(groupForm, bindingResult);
-        if (bindingResult.hasErrors()) {
-            model.addAttribute("newGroup", true);
-            addFormPreview(model, groupForm);
-            return "rules/detail";
+        if (bindingResult.hasErrors() && !maySaveInvalid(groupForm, bindingResult)) {
+            addValidatedForm(model, groupForm, bindingResult, true, true);
+            return DETAIL_VIEW;
         }
 
         long groupId = repository.createGroup(groupForm);
-        redirectAttributes.addFlashAttribute("message", "Regelgruppe wurde angelegt.");
+        redirectAttributes.addFlashAttribute(bindingResult.hasErrors() ? "saveWarning" : "message",
+                bindingResult.hasErrors() ? "Regelgruppe wurde mit Plausibilitätsfehlern angelegt." : "Regelgruppe wurde angelegt.");
         return "redirect:/rules/" + groupId;
     }
 
@@ -113,20 +120,18 @@ public class RuleController {
     public String previewNewGroup(@ModelAttribute("groupForm") RuleGroupForm groupForm,
                                   BindingResult bindingResult,
                                   Model model) {
+        groupForm.setId(null);
         formEditor.removeBlankRows(groupForm);
         formValidator.validateForPreview(groupForm, bindingResult);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        addValidatedForm(model, groupForm, bindingResult, true, true);
+        return DETAIL_VIEW;
     }
 
     /** Ergänzt im Entwurf eine leere Regel einschließlich einer Testzeile. */
     @PostMapping("/rules/new/rules")
     public String addRuleToNewGroup(@ModelAttribute("groupForm") RuleGroupForm groupForm, Model model) {
         formEditor.addRule(groupForm);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Kopiert eine Entwurfsregel samt Tests ohne deren gespeicherte IDs. */
@@ -135,10 +140,8 @@ public class RuleController {
                                           @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                           Model model) {
         formEditor.duplicateRule(groupForm, ruleIndex);
-        model.addAttribute("newGroup", true);
         model.addAttribute("duplicateHint", DUPLICATE_HINT);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Entfernt eine Formularregel, solange mindestens eine Regelzeile verbleibt. */
@@ -147,9 +150,7 @@ public class RuleController {
                                          @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                          Model model) {
         formEditor.removeRule(groupForm, ruleIndex);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Ergänzt eine leere Testzeile an der über ihren Listenindex gewählten Regel. */
@@ -158,9 +159,7 @@ public class RuleController {
                                         @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                         Model model) {
         formEditor.addTest(groupForm, ruleIndex);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Kopiert einen Entwurfstest direkt hinter das Original, ohne Test-ID. */
@@ -170,10 +169,8 @@ public class RuleController {
                                               @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                               Model model) {
         formEditor.duplicateTest(groupForm, ruleIndex, testIndex);
-        model.addAttribute("newGroup", true);
         model.addAttribute("duplicateHint", DUPLICATE_HINT);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /** Entfernt eine Entwurfstestzeile, sofern die Regel noch einen Test behält. */
@@ -183,14 +180,13 @@ public class RuleController {
                                              @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                              Model model) {
         formEditor.removeTest(groupForm, ruleIndex, testIndex);
-        model.addAttribute("newGroup", true);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, true);
     }
 
     /**
-     * Lädt gespeicherte Vorlagen zum Bearbeiten. Die expandierte Vorschau bleibt
-     * zunächst leer und wird erst durch eine Formularaktion erzeugt.
+     * Lädt und validiert gespeicherte Vorlagen vor ihrer Anzeige. Gespeicherte
+     * Leerzeilen bleiben erhalten und werden ebenfalls geprüft. Die expandierte
+     * Vorschau bleibt zunächst leer und wird erst durch eine Formularaktion erzeugt.
      *
      * @param groupId ID der zu bearbeitenden Gruppe
      * @param model gespeichertes Formular und Status der Detailansicht
@@ -200,16 +196,17 @@ public class RuleController {
     @GetMapping("/rules/{groupId}")
     public String showGroup(@PathVariable long groupId, Model model) {
         ensureGroupExists(groupId);
-        model.addAttribute("groupForm", repository.findGroupForm(groupId));
-        model.addAttribute("newGroup", false);
-        model.addAttribute("generatedRules", List.of());
-        model.addAttribute("generatedTests", List.of());
-        return "rules/detail";
+        RuleGroupForm groupForm = repository.findGroupForm(groupId);
+        BindingResult errors = new BeanPropertyBindingResult(groupForm, "groupForm");
+        formValidator.validateForSave(groupForm, errors);
+        addValidatedForm(model, groupForm, errors, false, false);
+        return DETAIL_VIEW;
     }
 
     /**
-     * Speichert alle bereinigten Vorlagen einer bestehenden Gruppe nach
-     * erfolgreicher Feld- und Fachvalidierung. Hinweise allein blockieren nicht.
+     * Speichert alle bereinigten Vorlagen einer bestehenden Gruppe nach der
+     * Feld- und Fachvalidierung. Fachliche Fehler benötigen die ausdrückliche
+     * Freigabe des angezeigten Prüfstands; Hinweise allein blockieren nicht.
      *
      * @param groupId maßgebliche Gruppen-ID aus dem URL-Pfad
      * @param groupForm übermittelte Vorlagen; ihre Gruppen-ID wird überschrieben
@@ -221,22 +218,21 @@ public class RuleController {
      */
     @PostMapping("/rules/{groupId}")
     public String saveGroup(@PathVariable long groupId,
-                            @Valid @ModelAttribute("groupForm") RuleGroupForm groupForm,
+                            @ModelAttribute("groupForm") RuleGroupForm groupForm,
                             BindingResult bindingResult,
                             Model model,
                             RedirectAttributes redirectAttributes) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.removeBlankRows(groupForm);
         formValidator.validateForSave(groupForm, bindingResult);
-        if (bindingResult.hasErrors()) {
-            model.addAttribute("newGroup", false);
-            addFormPreview(model, groupForm);
-            return "rules/detail";
+        if (bindingResult.hasErrors() && !maySaveInvalid(groupForm, bindingResult)) {
+            addValidatedForm(model, groupForm, bindingResult, false, true);
+            return DETAIL_VIEW;
         }
 
         repository.updateGroup(groupForm);
-        redirectAttributes.addFlashAttribute("message", "Regelgruppe wurde gespeichert.");
+        redirectAttributes.addFlashAttribute(bindingResult.hasErrors() ? "saveWarning" : "message",
+                bindingResult.hasErrors() ? "Regelgruppe wurde mit Plausibilitätsfehlern gespeichert." : "Regelgruppe wurde gespeichert.");
         return "redirect:/rules/{groupId}";
     }
 
@@ -256,13 +252,11 @@ public class RuleController {
                                @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                BindingResult bindingResult,
                                Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.removeBlankRows(groupForm);
         formValidator.validateForPreview(groupForm, bindingResult);
-        model.addAttribute("newGroup", false);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        addValidatedForm(model, groupForm, bindingResult, false, true);
+        return DETAIL_VIEW;
     }
 
     /** Ergänzt eine Regel im Bearbeitungsformular; persistiert erst beim Speichern. */
@@ -270,12 +264,9 @@ public class RuleController {
     public String addRuleToGroup(@PathVariable long groupId,
                                  @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                  Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.addRule(groupForm);
-        model.addAttribute("newGroup", false);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Kopiert eine Formularregel samt Tests und zeigt den Hinweis zur Anpassung. */
@@ -284,13 +275,10 @@ public class RuleController {
                                        @PathVariable int ruleIndex,
                                        @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                        Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.duplicateRule(groupForm, ruleIndex);
-        model.addAttribute("newGroup", false);
         model.addAttribute("duplicateHint", DUPLICATE_HINT);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Entfernt die Regel nur aus dem Formular, nicht sofort aus der Datenbank. */
@@ -299,12 +287,9 @@ public class RuleController {
                                       @PathVariable int ruleIndex,
                                       @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                       Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.removeRule(groupForm, ruleIndex);
-        model.addAttribute("newGroup", false);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Ergänzt einen Test im aktuellen Formularstand einer bestehenden Gruppe. */
@@ -313,12 +298,9 @@ public class RuleController {
                                      @PathVariable int ruleIndex,
                                      @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                      Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.addTest(groupForm, ruleIndex);
-        model.addAttribute("newGroup", false);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Kopiert einen Formular-Test ohne ID; gespeichert wird erst mit der Gruppe. */
@@ -328,13 +310,10 @@ public class RuleController {
                                            @PathVariable int testIndex,
                                            @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                            Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.duplicateTest(groupForm, ruleIndex, testIndex);
-        model.addAttribute("newGroup", false);
         model.addAttribute("duplicateHint", DUPLICATE_HINT);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Entfernt eine Formular-Testzeile unter Beibehaltung mindestens eines Tests. */
@@ -344,12 +323,9 @@ public class RuleController {
                                           @PathVariable int testIndex,
                                           @ModelAttribute("groupForm") RuleGroupForm groupForm,
                                           Model model) {
-        ensureGroupExists(groupId);
-        groupForm.setId(groupId);
+        prepareExistingGroup(groupId, groupForm);
         formEditor.removeTest(groupForm, ruleIndex, testIndex);
-        model.addAttribute("newGroup", false);
-        addFormPreview(model, groupForm);
-        return "rules/detail";
+        return showDraft(model, groupForm, false);
     }
 
     /** Zeigt die Bestätigung für das Löschen einer gespeicherten Gruppe. */
@@ -426,12 +402,26 @@ public class RuleController {
         return "redirect:/rules/{groupId}";
     }
 
+    /** Zeigt eine ungespeicherte Zeilenaktion ohne neue Fachvalidierung an. */
+    private String showDraft(Model model, RuleGroupForm form, boolean newGroup) {
+        model.addAttribute("newGroup", newGroup);
+        addFormPreview(model, form);
+        return DETAIL_VIEW;
+    }
+
+    /** Der URL-Pfad bestimmt bei jeder Bearbeitungsaktion die bestehende Gruppe. */
+    private void prepareExistingGroup(long groupId, RuleGroupForm form) {
+        ensureGroupExists(groupId);
+        form.setId(groupId);
+    }
+
     /**
      * Hält nicht blockierende Hinweise von Feldfehlern getrennt und übersetzt
      * nicht auflösbare Platzhalter in einen sichtbaren Vorschauhinweis. Der
      * Formularinhalt bleibt auch bei einer gescheiterten Expansion erhalten.
      */
     private void addFormPreview(Model model, RuleGroupForm groupForm) {
+        resetSaveConsent(model, groupForm);
         model.addAttribute("formNotices", repository.validationNotices(groupForm));
         try {
             RulePreview preview = repository.preview(groupForm);
@@ -442,6 +432,54 @@ public class RuleController {
             model.addAttribute("generatedTests", List.of());
             model.addAttribute("previewWarning", e.getMessage());
         }
+    }
+
+    /**
+     * Verknüpft die gemeinsame Validierung mit der Feldanzeige und einer je
+     * Speichervorgang ausdrücklich zu wählenden Fehlerfreigabe. Der GET verändert keine gespeicherten
+     * Vorlagen und benötigt keine vollständige Vorschau. Anlegen, Öffnen, Speichern
+     * und Vorschau verwenden dieselben fachlichen Prüfungen statt zusätzlicher
+     * Bean-Validation-Fehler mit abweichenden Meldungen.
+     */
+    private void addValidatedForm(Model model, RuleGroupForm form, BindingResult errors,
+                                  boolean newGroup, boolean preview) {
+        model.addAttribute("groupForm", form);
+        model.addAttribute(BindingResult.MODEL_KEY_PREFIX + "groupForm", errors);
+        model.addAttribute("newGroup", newGroup);
+        if (preview) {
+            addFormPreview(model, form);
+        } else {
+            resetSaveConsent(model, form);
+            model.addAttribute("formNotices", repository.validationNotices(form));
+            model.addAttribute("generatedRules", List.of());
+            model.addAttribute("generatedTests", List.of());
+        }
+        if (errors.hasErrors()) {
+            boolean blocked = hasUnreviewableErrors(errors);
+            model.addAttribute("invalidSaveBlocked", blocked);
+            if (!blocked) {
+                model.addAttribute("invalidSaveReview", invalidSaveReview.issue(form, errors));
+            }
+        }
+    }
+
+    /** Technische Bindungsfehler dürfen durch eine fachliche Fehlerfreigabe nicht übergangen werden. */
+    private boolean hasUnreviewableErrors(BindingResult errors) {
+        return errors.hasGlobalErrors() || errors.getFieldErrors().stream().anyMatch(FieldError::isBindingFailure);
+    }
+
+    /** Jeder Speicherversuch prüft den Inhalt und die zu bestätigenden Fehler erneut. */
+    private boolean maySaveInvalid(RuleGroupForm form, BindingResult errors) {
+        return form.isSaveInvalid() && !hasUnreviewableErrors(errors)
+                && invalidSaveReview.matches(form.getValidationReview(), form, errors);
+    }
+
+    /** Zustimmungen werden weder nachgeladen noch durch Vorschau- oder Zeilenaktionen fortgeschrieben. */
+    private void resetSaveConsent(Model model, RuleGroupForm form) {
+        form.setSaveInvalid(false);
+        form.setValidationReview("");
+        model.asMap().remove("invalidSaveReview");
+        model.asMap().remove("invalidSaveBlocked");
     }
 
     private void ensureGroupExists(long groupId) {

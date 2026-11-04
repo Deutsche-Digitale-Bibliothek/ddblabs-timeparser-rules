@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="de" xmlns:th="http://www.thymeleaf.org">
+<body>
+<!-- Gemeinsame Navigation; alle URLs werden mit dem konfigurierten Kontextpfad erzeugt. -->
+<nav th:fragment="navigation(activeSection)" class="navbar navbar-expand-lg bg-body border-bottom">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/rules}">
+            <i class="bi bi-calendar-range me-2" aria-hidden="true"></i>Timeparser-Regeln
+        </a>
+        <div class="navbar-nav">
+            <a class="nav-link" th:classappend="${activeSection == 'rules'} ? 'active'" th:href="@{/rules}">Regelgruppen</a>
+            <a class="nav-link" th:classappend="${activeSection == 'generated'} ? 'active'" th:href="@{/generated-rules}">Regeln &amp; Tests</a>
+            <a class="nav-link" th:classappend="${activeSection == 'tokens'} ? 'active'" th:href="@{/tokens}">Platzhalter</a>
+            <a class="nav-link" th:classappend="${activeSection == 'plausibility'} ? 'active'" th:href="@{/plausibility}">Plausibilität</a>
+            <form class="d-inline" th:action="@{/logout}" method="post">
+                <button type="submit" class="nav-link btn btn-link">Abmelden</button>
+            </form>
+        </div>
+    </div>
+</nav>
+</body>
+</html>
