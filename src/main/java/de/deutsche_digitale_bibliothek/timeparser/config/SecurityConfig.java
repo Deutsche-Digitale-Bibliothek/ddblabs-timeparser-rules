@@ -23,7 +23,7 @@ import org.springframework.security.web.SecurityFilterChain;
  * Requests verlangen eine Anmeldung. Die vergebene Rolle {@code ADMIN} wird
  * hier nicht für feinere Rechteunterscheidungen ausgewertet.</p>
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class SecurityConfig {
 
     /**

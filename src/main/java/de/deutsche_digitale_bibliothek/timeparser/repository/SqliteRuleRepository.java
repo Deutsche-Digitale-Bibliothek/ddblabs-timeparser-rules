@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -343,18 +344,6 @@ public class SqliteRuleRepository {
     }
 
     /**
-     * @param groupId auf diese Gruppe einzuschränkende Vorlagen
-     * @return auflösbare generierte Regeln der Gruppe einschließlich möglicher Dubletten
-     * @see #generatedRules()
-     */
-    public List<Rule> generatedRulesForGroup(long groupId) {
-        return safeGeneratedRuleRows(ruleTemplates(groupId), tokenValuesByName()).stream()
-                .map(GeneratedRuleRow::rule)
-                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
-                .toList();
-    }
-
-    /**
      * Erzeugt konkrete Tests für die auflösbaren Regelvarianten aller Gruppen.
      * Nur Kombinationen mit passender tokenisierter Eingabe werden übernommen;
      * dies ist keine Ausführung oder Erfolgsbewertung der Testfälle.
@@ -453,7 +442,7 @@ public class SqliteRuleRepository {
     public List<Issue> validationIssues(RuleGroupForm form) {
         Map<String, List<String>> tokens = tokenValuesByName();
         ValidationContext context = validationContext(tokens);
-        return validationIssues(form, tokens, context, null);
+        return validationIssues(form, tokens, context, false);
     }
 
     /**
@@ -519,23 +508,18 @@ public class SqliteRuleRepository {
      * enthalten die Regelsignatur: gleiche Beispiele an unterschiedlichen Regeln
      * sind zulässig und erhalten ihre jeweilige Zuordnung.
      *
-     * <p>{@code formRows} enthält beim Bestandscheck die bereits gemeinsam
+     * <p>{@code storedForm} verwendet beim Bestandscheck die bereits gemeinsam
      * expandierten Zeilen mit ihren tatsächlichen Varianten-IDs. Bei einem
-     * bearbeiteten Formular ist die Liste {@code null}: Jede Zeile wird dort
+     * bearbeiteten Formular wird dagegen jede Zeile
      * einzeln expandiert, weil vorläufige IDs neuer Zeilen mit vorhandenen
      * Formular-IDs kollidieren können und keine gemeinsame Herkunft darstellen.</p>
      */
     private List<Issue> validationIssues(RuleGroupForm form, Map<String, List<String>> tokens,
-                                         ValidationContext context, List<GeneratedRuleRow> formRows) {
-        Set<Issue> issues = new LinkedHashSet<>(RuleGroupValidator.validate(form));
-        Map<String, List<GeneratedRuleRow>> rowsByTemplate = new LinkedHashMap<>();
-        if (formRows != null) {
-            for (GeneratedRuleRow row : formRows) {
-                rowsByTemplate.computeIfAbsent(row.templateId(), ignored -> new ArrayList<>()).add(row);
-            }
-        }
+                                         ValidationContext context, boolean storedForm) {
+        Map<IssueKey, Issue> issues = new LinkedHashMap<>();
+        addIssues(issues, "", RuleGroupValidator.validate(form));
         Map<String, List<GeneratedRuleRow>> seenRules = new LinkedHashMap<>();
-        Set<String> seenTests = new HashSet<>();
+        Set<TestKey> seenTests = new HashSet<>();
         for (int r = 0; r < form.getRules().size(); r++) {
             var rule = form.getRules().get(r);
             String prefix = "rules[" + r + "].";
@@ -544,18 +528,22 @@ public class SqliteRuleRepository {
                     rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
             List<GeneratedRuleRow> rows = List.of();
             if (known && isCompleteRule(rule)) {
-                rows = formRows == null
+                rows = !storedForm
                         ? generatedRuleRows(List.of(new RuleTemplate(previewRuleId(rule, r),
                                 form.getId() == null ? 0 : form.getId(), rule.getInputMask(), rule.getInputPattern(),
                                 rule.getOutputMask(), rule.getOutputPattern())), tokens)
-                        : rowsByTemplate.getOrDefault(previewRuleId(rule, r), List.of());
+                        : context.rowsByTemplate.getOrDefault(previewRuleId(rule, r), List.of());
             }
+            Map<String, String> outputTestMasks = new LinkedHashMap<>();
             for (GeneratedRuleRow row : rows) {
                 Rule concrete = row.rule();
                 addIssues(issues, prefix, RulePatternValidator.validate(concrete.getInputMask(), concrete.getInputPattern(),
                         concrete.getOutputMask(), concrete.getOutputPattern()));
                 addIssues(issues, prefix, RuleGroupValidator.validateCsvWhitespace(
                         new String[]{"inputMask", "inputPattern", "outputMask", "outputPattern"},
+                        concrete.getInputMask(), concrete.getInputPattern(), concrete.getOutputMask(), concrete.getOutputPattern()));
+                // Die Prüfmaske hängt nur von der konkreten Regel ab, nicht vom Test.
+                outputTestMasks.put(concrete.getId(), RulePatternValidator.outputTestMask(
                         concrete.getInputMask(), concrete.getInputPattern(), concrete.getOutputMask(), concrete.getOutputPattern()));
                 List<GeneratedRuleRow> previous = seenRules.computeIfAbsent(concrete.getInputMask(), ignored -> new ArrayList<>());
                 for (GeneratedRuleRow other : previous) {
@@ -584,9 +572,9 @@ public class SqliteRuleRepository {
                         test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
                 // Eine konkrete Eingabe muss zu mindestens einer Regelvariante passen.
                 // Ausgabewerte hängen dagegen von der gerade gewählten Regelbelegung ab.
-                Set<String> matchedCandidates = new HashSet<>();
-                Set<String> matchedTests = new HashSet<>();
-                Map<String, List<Issue>> candidateIssues = new LinkedHashMap<>();
+                Set<List<String>> matchedCandidates = new HashSet<>();
+                Set<TestKey> matchedTests = new HashSet<>();
+                Map<List<String>, List<Issue>> candidateIssues = new LinkedHashMap<>();
                 for (GeneratedRuleRow row : rows) {
                     for (Map<String, String> values : testTokenExpansions(template, row.tokenValues(), tokens)) {
                         String input = applyTokenValues(template.input(), values);
@@ -595,10 +583,9 @@ public class SqliteRuleRepository {
                         String timespan = applyTokenValues(template.timespan(), values);
                         // Output/Timespan gehören absichtlich nicht zum Kandidatenschlüssel:
                         // Ein Test für "ca. 1950" muss keine "um"-Regelvariante erfüllen.
-                        String candidate = signature(input, tokenized);
+                        List<String> candidate = signature(input, tokenized);
                         Rule concrete = row.rule();
-                        String outputTestMask = RulePatternValidator.outputTestMask(concrete.getInputMask(), concrete.getInputPattern(),
-                                concrete.getOutputMask(), concrete.getOutputPattern());
+                        String outputTestMask = outputTestMasks.get(concrete.getId());
                         List<Issue> testIssues = RuleGroupValidator.validateTest(concrete.getInputMask(), outputTestMask,
                                 tokenized, output, timespan);
                         testIssues.addAll(RuleGroupValidator.validateCsvWhitespace(new String[]{"input"}, input));
@@ -606,7 +593,7 @@ public class SqliteRuleRepository {
                         if (matchesInputMask(row.rule().getInputMask(), tokenized)) {
                             addIssues(issues, testPrefix, testIssues);
                             matchedCandidates.add(candidate);
-                            String concreteTest = signature(ruleSignature(concrete), input, tokenized, output, timespan);
+                            TestKey concreteTest = new TestKey(ruleSignature(concrete), signature(input, tokenized, output, timespan));
                             if (matchedTests.add(concreteTest)
                                     && (!seenTests.add(concreteTest) || context.hasTestOutsideGroup(concreteTest, form.getId()))) {
                                 addIssue(issues, new Issue(testPrefix + "input", "test.duplicate", "Dieser generierte Test ist bereits vorhanden."));
@@ -621,11 +608,11 @@ public class SqliteRuleRepository {
                 }
             }
         }
-        return List.copyOf(issues);
+        return List.copyOf(issues.values());
     }
 
     /** Unterscheidet exakte Regeldubletten von konkurrierenden Transformationen derselben Maske. */
-    private void addRuleConflict(Set<Issue> issues, String prefix, Rule rule, GeneratedRuleRow other) {
+    private void addRuleConflict(Map<IssueKey, Issue> issues, String prefix, Rule rule, GeneratedRuleRow other) {
         boolean duplicate = ruleSignature(rule).equals(ruleSignature(other.rule()));
         String location = "Regel " + other.rule().getId() + (other.groupId() > 0
                 ? " (Regelgruppe " + other.groupId() + ", Vorlage " + other.templateId() + ")"
@@ -633,11 +620,39 @@ public class SqliteRuleRepository {
         addIssue(issues, new Issue(prefix + "inputMask", duplicate ? "rule.duplicate" : "rule.mask.conflict",
                 (duplicate ? "Diese generierte Regel ist bereits vorhanden. Fundstelle: " + location + "."
                         : "Die Eingabemaske ist bereits mit einer anderen Transformation belegt. Fundstelle: " + location
-                                + ". Der Timeparser verwendet nur die erste Regel je Eingabemaske."),
+                                + ". Der Timeparser verwendet nur die erste Regel je Eingabemaske."
+                                + ruleSelectionHint(rule, other.rule())),
                 List.of(new RulePatternValidator.RelatedRule(other.rule().getId(), other.groupId(), other.templateId()))));
     }
 
-    private void addIssues(Set<Issue> issues, String prefix, List<Issue> additions) {
+    /** Erklärt, weshalb andere Variablennamen keine zweite Regel für dieselbe Eingabeform ergeben. */
+    private String ruleSelectionHint(Rule rule, Rule other) {
+        String hint = " Beide Regeln haben dieselbe Eingabemaske [" + visibleWhitespace(rule.getInputMask())
+                + "]. Unterschiedliche Variablennamen im Muster ändern die Regelauswahl nicht.";
+        if (hasTwoDigitVariableNamedM(rule) || hasTwoDigitVariableNamedM(other)) {
+            hint += " Beispiel: Bei Eingabemaske ## und Eingabe 03 nimmt das Eingabemuster NN den Wert 03 auf. Mit dem Eingabemuster MM wird derselbe Wert 03 aufgenommen. Für Monatsnamen wie März ist stattdessen MM in der Eingabemaske erforderlich.";
+        } else if (rule.getInputMask().contains("MM")) {
+            hint += " Beispiel: Eingabemaske MM #### und Eingabemuster NN JJJJ: Für die Eingabe März 2010 nimmt NN die Monatszahl 03 und JJJJ das Jahr 2010 auf.";
+        }
+        return hint;
+    }
+
+    /** M über zwei #-Stellen ist eine gewöhnliche Ziffernvariable, kein Monatsnamenmarker. */
+    private boolean hasTwoDigitVariableNamedM(Rule rule) {
+        String mask = rule.getInputMask();
+        String pattern = rule.getInputPattern();
+        for (int index = 0; index + 1 < Math.min(mask.length(), pattern.length()); index++) {
+            if (mask.startsWith("##", index) && pattern.startsWith("MM", index)
+                    && (index == 0 || mask.charAt(index - 1) != '#' || pattern.charAt(index - 1) != 'M')
+                    && (index + 2 == Math.min(mask.length(), pattern.length())
+                            || mask.charAt(index + 2) != '#' || pattern.charAt(index + 2) != 'M')) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void addIssues(Map<IssueKey, Issue> issues, String prefix, List<Issue> additions) {
         for (Issue issue : additions) {
             addIssue(issues, new Issue(prefix + issue.field(), issue.code(), issue.message(), issue.relatedRules()));
         }
@@ -649,15 +664,11 @@ public class SqliteRuleRepository {
      * Expansion mit unterschiedlichen Erläuterungen nicht aus. Der erste Text bleibt
      * erhalten. Variantenbezogene Hinweise verwenden bewusst nicht diese Verdichtung.
      */
-    private void addIssue(Set<Issue> issues, Issue addition) {
-        boolean alreadyReported = issues.stream().anyMatch(issue ->
-                issue.field().equals(addition.field()) && issue.code().equals(addition.code()));
-        if (!alreadyReported) {
-            issues.add(addition);
-        }
+    private void addIssue(Map<IssueKey, Issue> issues, Issue addition) {
+        issues.putIfAbsent(new IssueKey(addition.field(), addition.code()), addition);
     }
 
-    private boolean checkTokens(Set<Issue> issues, String prefix, Map<String, List<String>> tokens,
+    private boolean checkTokens(Map<IssueKey, Issue> issues, String prefix, Map<String, List<String>> tokens,
                                   String[] fields, String... values) {
         boolean known = true;
         for (int i = 0; i < fields.length; i++) {
@@ -711,7 +722,7 @@ public class SqliteRuleRepository {
         List<RuleGroupForm> forms = groupId == null ? findGroupForms(templates, tests) : List.of(findGroupForm(groupId));
         for (RuleGroupForm form : forms) {
             List<GeneratedRuleRow> formRows = context.rowsByGroup.getOrDefault(form.getId(), List.of());
-            for (Issue issue : validationIssues(form, tokenValues, context, formRows)) {
+            for (Issue issue : validationIssues(form, tokenValues, context, true)) {
                 warnings.add(validationWarning(form, issue));
             }
             for (Issue notice : validationNotices(form, context, formRows, context.testedRuleIds)) {
@@ -776,7 +787,7 @@ public class SqliteRuleRepository {
     }
 
     private void addDuplicateRuleWarnings(List<PlausibilityWarning> warnings, List<GeneratedRuleRow> ruleRows) {
-        Map<String, List<GeneratedRuleRow>> rowsByValues = new LinkedHashMap<>();
+        Map<List<String>, List<GeneratedRuleRow>> rowsByValues = new LinkedHashMap<>();
         for (GeneratedRuleRow row : ruleRows) {
             rowsByValues.computeIfAbsent(ruleSignature(row.rule()), key -> new ArrayList<>()).add(row);
         }
@@ -795,11 +806,11 @@ public class SqliteRuleRepository {
     private void addDuplicateTestWarnings(List<PlausibilityWarning> warnings,
                                           List<RuleTest> tests,
                                           Map<String, GeneratedRuleRow> rowsByRuleId) {
-        Map<String, List<RuleTest>> testsByValues = new LinkedHashMap<>();
+        Map<TestKey, List<RuleTest>> testsByValues = new LinkedHashMap<>();
         for (RuleTest test : tests) {
             GeneratedRuleRow row = rowsByRuleId.get(test.getRuleId());
-            String scope = row == null ? test.getRuleId() : ruleSignature(row.rule());
-            testsByValues.computeIfAbsent(signature(scope, testSignature(test)), key -> new ArrayList<>()).add(test);
+            List<String> scope = row == null ? List.of(test.getRuleId()) : ruleSignature(row.rule());
+            testsByValues.computeIfAbsent(new TestKey(scope, testSignature(test)), key -> new ArrayList<>()).add(test);
         }
         for (List<RuleTest> duplicateTests : testsByValues.values()) {
             if (duplicateTests.size() > 1) {
@@ -912,7 +923,8 @@ public class SqliteRuleRepository {
             if (names.stream().anyMatch(name -> tokenValuesForName(name, tokens).isEmpty())) {
                 warnings.add(new PlausibilityWarning("Export", List.of(), List.of(),
                         "Der Test " + test.id() + " fehlt im Export, weil ein Platzhalter nicht expandiert werden kann."));
-            } else if (expanded.contains(test.ruleId()) && safeGeneratedTests(rows, List.of(test), tokens).isEmpty()) {
+            } else if (expanded.contains(test.ruleId()) && safeGeneratedTests(
+                    context.rowsByTemplate.getOrDefault(test.ruleId(), List.of()), List.of(test), tokens).isEmpty()) {
                 warnings.add(new PlausibilityWarning("Export", List.of(), List.of(),
                         "Der Test " + test.id() + " fehlt im Export, weil der tokenisierte Wert zu keiner erzeugten Eingabemaske passt."));
             }
@@ -1192,7 +1204,6 @@ public class SqliteRuleRepository {
                         continue;
                     }
                     candidates.add(new GeneratedTestCandidate(
-                            test.id(),
                             row.rule().getId(),
                             input,
                             tokenized,
@@ -1203,7 +1214,7 @@ public class SqliteRuleRepository {
             }
             for (int index = 0; index < candidates.size(); index++) {
                 GeneratedTestCandidate candidate = candidates.get(index);
-                String testId = generatedId(candidate.templateId(), index + 1, candidates.size(), usedIds);
+                String testId = generatedId(test.id(), index + 1, candidates.size(), usedIds);
                 generatedTests.add(new RuleTest(
                         testId,
                         candidate.ruleId(),
@@ -1240,7 +1251,7 @@ public class SqliteRuleRepository {
                         applyTokenValues(template.outputMask(), tokenValues),
                         applyTokenValues(template.outputPattern(), tokenValues)
                 );
-                generatedRules.add(new GeneratedRuleRow(template.id(), template.groupId(), index + 1, expansions.size(), tokenValues, rule));
+                generatedRules.add(new GeneratedRuleRow(template.id(), template.groupId(), tokenValues, rule));
             }
         }
         return generatedRules;
@@ -1496,18 +1507,8 @@ public class SqliteRuleRepository {
     }
 
     private String lookupTokenValue(Map<String, String> tokenValues, String tokenName) {
-        String key = tokenLookupKey(tokenName);
-        String replacement = tokenValues.get(key);
-        if (replacement != null) {
-            return replacement;
-        }
-
-        for (Map.Entry<String, String> entry : tokenValues.entrySet()) {
-            if (tokenLookupKey(entry.getKey()).equals(key)) {
-                return entry.getValue();
-            }
-        }
-        return null;
+        // Belegungen werden ausschließlich mit bereits normalisierten Schlüsseln aufgebaut.
+        return tokenValues.get(tokenLookupKey(tokenName));
     }
 
     private String previewRuleId(RuleGroupForm.RuleVariantForm rule, int ruleIndex) {
@@ -1572,20 +1573,20 @@ public class SqliteRuleRepository {
     }
 
     /** Wertgleichheit einer Transformation; IDs und Gruppenzugehörigkeit zählen nicht mit. */
-    private String ruleSignature(Rule rule) {
+    private List<String> ruleSignature(Rule rule) {
         return signature(rule.getInputMask(), rule.getInputPattern(), rule.getOutputMask(), rule.getOutputPattern());
     }
 
     /** Testwertgleichheit ohne IDs; der Aufrufer ergänzt den Regelkontext für Dublettenvergleiche. */
-    private String testSignature(RuleTest test) {
+    private List<String> testSignature(RuleTest test) {
         return signature(test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
     }
 
-    private String signature(String... values) {
-        // Ein unsichtbares Trennzeichen verhindert Kollisionen zwischen benachbarten Feldern.
-        return String.join("\u001F", java.util.Arrays.stream(values)
+    private List<String> signature(String... values) {
+        // Feldgrenzen bleiben auch bei Steuerzeichen in eingegebenen Werten erhalten.
+        return java.util.Arrays.stream(values)
                 .map(value -> value == null ? "" : value)
-                .toList());
+                .toList();
     }
 
     private List<PlausibilityWarning.PlausibilityField> ruleFields(Rule rule) {
@@ -1651,12 +1652,21 @@ public class SqliteRuleRepository {
         // IDs bleiben technische Schlüssel und werden nur bei neuen Formularzeilen automatisch vergeben.
         List<String> existingRuleIds = jdbcTemplate.queryForList("SELECT id FROM rules", String.class);
         List<String> existingTestIds = jdbcTemplate.queryForList("SELECT id FROM tests", String.class);
+        // Beim Ersetzen wurden die eigenen Zeilen bereits gelöscht. Ihre IDs
+        // müssen trotzdem reserviert bleiben, bevor neue Formularzeilen IDs erhalten.
+        for (var rule : rules) {
+            existingRuleIds.add(rule.getId());
+            for (var test : rule.getTests()) {
+                existingTestIds.add(test.getId());
+            }
+        }
+        IdSequence ruleIds = new IdSequence(existingRuleIds, "R");
+        IdSequence testIds = new IdSequence(existingTestIds, "T");
         for (int ruleIndex = 0; ruleIndex < rules.size(); ruleIndex++) {
             RuleGroupForm.RuleVariantForm rule = rules.get(ruleIndex);
             String ruleId = rule.getId();
             if (ruleId == null || ruleId.isBlank()) {
-                ruleId = nextId(existingRuleIds, "R");
-                existingRuleIds.add(ruleId);
+                ruleId = ruleIds.next();
             }
             jdbcTemplate.update("""
                     INSERT INTO rules (id, group_id, input_mask, input_pattern, output_mask, output_pattern, position)
@@ -1667,8 +1677,7 @@ public class SqliteRuleRepository {
                 RuleGroupForm.TestForm test = rule.getTests().get(testIndex);
                 String testId = test.getId();
                 if (testId == null || testId.isBlank()) {
-                    testId = nextId(existingTestIds, "T");
-                    existingTestIds.add(testId);
+                    testId = testIds.next();
                 }
                 jdbcTemplate.update("""
                         INSERT INTO tests (id, rule_id, input, tokenized, output, timespan, position)
@@ -1917,15 +1926,9 @@ public class SqliteRuleRepository {
 
     /** Einheitlicher Schlüssel für Expansion und Abhängigkeiten: Aliasauflösung und {@code Locale.ROOT}. */
     private String tokenLookupKey(String tokenName) {
-        return canonicalTokenName(tokenName).toLowerCase(Locale.ROOT);
-    }
-
-    private String canonicalTokenName(String tokenName) {
         // Historische Schreibweise aus frühen Entwürfen weiter akzeptieren.
-        if ("aprox".equalsIgnoreCase(tokenName)) {
-            return "approx";
-        }
-        return tokenName;
+        String key = tokenName.toLowerCase(Locale.ROOT);
+        return "aprox".equals(key) ? "approx" : key;
     }
 
     /** Entfernt leere Zeilen, bewahrt aber reine Leerzeichen und deren fachlich relevante Position. */
@@ -1971,17 +1974,33 @@ public class SqliteRuleRepository {
         }
     }
 
-    private String nextId(List<String> ids, String prefix) {
-        int next = ids.stream()
-                .filter(id -> id != null && id.startsWith(prefix))
-                .map(NUMERIC_SUFFIX::matcher)
-                .filter(Matcher::matches)
-                .filter(matcher -> matcher.group(1).equals(prefix))
-                .map(matcher -> matcher.group(2))
-                .mapToInt(Integer::parseInt)
-                .max()
-                .orElse(0) + 1;
-        return prefix + next;
+    /**
+     * Ermittelt den größten numerischen ID-Suffix einmal pro Speichervorgang.
+     * Bereits im Formular vergebene IDs sind dabei eingeschlossen. Weitere IDs
+     * benötigen keine erneute Bestandssuche; BigInteger vermeidet Überläufe bei
+     * importierten großen IDs. Nichtnumerische Varianten wie R1_2 zählen nicht mit.
+     */
+    private static final class IdSequence {
+        private final String prefix;
+        private BigInteger next;
+
+        private IdSequence(List<String> ids, String prefix) {
+            this.prefix = prefix;
+            next = ids.stream()
+                    .filter(Objects::nonNull)
+                    .map(NUMERIC_SUFFIX::matcher)
+                    .filter(Matcher::matches)
+                    .filter(matcher -> matcher.group(1).equals(prefix))
+                    .map(matcher -> new BigInteger(matcher.group(2)))
+                    .max(Comparator.naturalOrder())
+                    .orElse(BigInteger.ZERO).add(BigInteger.ONE);
+        }
+
+        private String next() {
+            String id = prefix + next;
+            next = next.add(BigInteger.ONE);
+            return id;
+        }
     }
 
     private boolean isBlank(String value) {
@@ -2012,14 +2031,11 @@ public class SqliteRuleRepository {
 
     /**
      * Konkrete Regel samt Rückverweis auf Vorlage und Gruppe. Die verwendete
-     * {@code tokenValues}-Belegung wird an ihre Testvorlagen weitergereicht;
-     * {@code expansionIndex} ist einsbasiert und beschreibt die aktuelle Expansion.
+     * {@code tokenValues}-Belegung wird an ihre Testvorlagen weitergereicht.
      */
     private record GeneratedRuleRow(
             String templateId,
             long groupId,
-            int expansionIndex,
-            int expansionCount,
             Map<String, String> tokenValues,
             Rule rule
     ) {
@@ -2071,9 +2087,10 @@ public class SqliteRuleRepository {
         private final List<GeneratedRuleRow> rows;
         private final List<RuleTest> tests;
         private final Map<Long, List<GeneratedRuleRow>> rowsByGroup = new LinkedHashMap<>();
+        private final Map<String, List<GeneratedRuleRow>> rowsByTemplate = new LinkedHashMap<>();
         private final Map<String, List<GeneratedRuleRow>> rowsByMask = new LinkedHashMap<>();
         private final Map<MaskShape, List<GeneratedRuleRow>> rowsByShape = new LinkedHashMap<>();
-        private final Map<String, Set<Long>> testGroupsBySignature = new LinkedHashMap<>();
+        private final Map<TestKey, Set<Long>> testGroupsBySignature = new LinkedHashMap<>();
         private final Set<String> testedRuleIds = new HashSet<>();
 
         private ValidationContext(List<GeneratedRuleRow> rows, List<RuleTest> tests) {
@@ -2082,6 +2099,7 @@ public class SqliteRuleRepository {
             Map<String, GeneratedRuleRow> rowsById = new LinkedHashMap<>();
             for (GeneratedRuleRow row : rows) {
                 rowsByGroup.computeIfAbsent(row.groupId(), ignored -> new ArrayList<>()).add(row);
+                rowsByTemplate.computeIfAbsent(row.templateId(), ignored -> new ArrayList<>()).add(row);
                 rowsByMask.computeIfAbsent(row.rule().getInputMask(), ignored -> new ArrayList<>()).add(row);
                 rowsByShape.computeIfAbsent(maskShape(row.rule().getInputMask()), ignored -> new ArrayList<>()).add(row);
                 rowsById.put(row.rule().getId(), row);
@@ -2089,7 +2107,7 @@ public class SqliteRuleRepository {
             for (RuleTest test : tests) {
                 GeneratedRuleRow row = rowsById.get(test.getRuleId());
                 if (row != null) {
-                    String key = signature(ruleSignature(row.rule()), testSignature(test));
+                    TestKey key = new TestKey(ruleSignature(row.rule()), testSignature(test));
                     testGroupsBySignature.computeIfAbsent(key, ignored -> new HashSet<>()).add(row.groupId());
                     // Unvollständige Altvorlagen bleiben diagnostizierbar, gelten
                     // aber wie im Formularpfad nicht als vorhandene Testabdeckung.
@@ -2102,15 +2120,22 @@ public class SqliteRuleRepository {
             }
         }
 
-        private boolean hasTestOutsideGroup(String signature, Long groupId) {
+        private boolean hasTestOutsideGroup(TestKey signature, Long groupId) {
             Set<Long> groups = testGroupsBySignature.get(signature);
             return groups != null && (groupId == null || groups.size() > 1 || !groups.contains(groupId));
         }
     }
 
+    /** Ein Fehler pro Formularfeld und Prüfcode; der erste Text und seine Fundstellen bleiben erhalten. */
+    private record IssueKey(String field, String code) {
+    }
+
+    /** Testidentität mit abgegrenzten Regelfeldern, unabhängig von IDs und Trennzeichen im Inhalt. */
+    private record TestKey(List<String> rule, List<String> values) {
+    }
+
     /** Passende expandierte Testwerte vor der gemeinsamen Vergabe kollisionsfreier Test-IDs. */
     private record GeneratedTestCandidate(
-            String templateId,
             String ruleId,
             String input,
             String tokenized,

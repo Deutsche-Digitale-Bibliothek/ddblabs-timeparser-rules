@@ -15,7 +15,7 @@ import javax.sql.DataSource;
  * {@link SQLiteDataSource} bereitgestellt; Schemaerzeugung, optionale Migration
  * und CSV-Erstimport liegen im Repository und nicht in dieser Konfiguration.</p>
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class SqliteConfig {
 
     /**

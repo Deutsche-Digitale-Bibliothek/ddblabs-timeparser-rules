@@ -57,9 +57,9 @@ public final class RuleGroupValidator {
         if (form.getRules().isEmpty()) {
             issues.add(new Issue("rules", "rules.required", "Mindestens eine Regel ist erforderlich."));
         }
-        Set<String> rules = new HashSet<>();
+        Set<List<String>> rules = new HashSet<>();
         for (int r = 0; r < form.getRules().size(); r++) {
-            Set<String> tests = new HashSet<>();
+            Set<List<String>> tests = new HashSet<>();
             var rule = form.getRules().get(r);
             String prefix = "rules[" + r + "].";
             required(issues, prefix + "inputMask", rule.getInputMask(), "Die Eingabemaske ist erforderlich.");
@@ -176,17 +176,33 @@ public final class RuleGroupValidator {
             return;
         }
         if (mask.length() != value.length()) {
-            issues.add(new Issue(field, "length.mismatch", label + " muss zur " + maskLabel + " gleich lang sein."));
+            issues.add(new Issue(field, "length.mismatch", label + " muss zur " + maskLabel + " gleich lang sein."
+                    + monthMaskHint(field, mask, value)));
             return;
         }
         for (int i = 0; i < mask.length(); i++) {
             char expected = mask.charAt(i);
             char actual = value.charAt(i);
             if (expected == '#' ? actual < '0' || actual > '9' : expected != actual) {
-                issues.add(new Issue(field, "mask.mismatch", label + " passt an Position " + (i + 1) + " nicht zur " + maskLabel + "."));
+                issues.add(new Issue(field, "mask.mismatch", label + " passt an Position " + (i + 1) + " nicht zur " + maskLabel + "."
+                        + monthMaskHint(field, mask, value)));
                 return;
             }
         }
+    }
+
+    /** Erläutert Monatsmarker nur bei fehlerhaften tokenisierten Eingaben, nicht bei Ausgabewerten. */
+    private static String monthMaskHint(String field, String mask, String value) {
+        if (!"tokenized".equals(field)) {
+            return "";
+        }
+        if (mask.contains("MM")) {
+            return " MM in der Eingabemaske steht für einen tokenisierten Monatsnamen. Im Feld Tokenisiert steht dafür MM, z. B. MM 2010 für März 2010. Eine Monatszahl wie 03 benötigt stattdessen ## in der Eingabemaske.";
+        }
+        if (value.contains("MM")) {
+            return " MM im tokenisierten Testwert steht für einen Monatsnamen und benötigt MM in der Eingabemaske. ## in der Eingabemaske erwartet dagegen zwei Ziffern. MM im Muster ändert diese Bedeutung nicht.";
+        }
+        return "";
     }
 
     private static void required(List<Issue> issues, String field, String value, String message) {
@@ -197,9 +213,10 @@ public final class RuleGroupValidator {
 
     /**
      * Vergleicht Feldtupel ohne Trimmung; {@code null} wird wie ein leerer Wert
-     * behandelt. Das Steuerzeichen trennt die einzelnen Feldwerte im Schlüssel.
+     * behandelt. Die Liste erhält Feldgrenzen auch dann, wenn ein eingegebener
+     * Wert Steuerzeichen oder andere mögliche Trennzeichen enthält.
      */
-    private static String signature(String... values) {
-        return String.join("\u001f", java.util.Arrays.stream(values).map(v -> v == null ? "" : v).toList());
+    private static List<String> signature(String... values) {
+        return java.util.Arrays.stream(values).map(value -> value == null ? "" : value).toList();
     }
 }

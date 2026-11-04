@@ -35,9 +35,13 @@ import java.util.zip.ZipOutputStream;
 @Service
 public class CsvExportService {
 
-    private static final String[] RULE_HEADERS = {"id", "inputMask", "inputPattern", "outputMask", "outputPattern"};
-    private static final String[] TEST_HEADERS = {"id", "for", "input", "tokenized", "output", "timespan"};
-    private static final String[] TOKEN_HEADERS = {"name", "description", "value", "position"};
+    // CSVFormat ist unveränderlich; Header und Quoting-Regeln gelten für jeden Aufruf gleich.
+    private static final CSVFormat RULE_FORMAT = CSVFormat.DEFAULT.builder()
+            .setHeader("id", "inputMask", "inputPattern", "outputMask", "outputPattern").get();
+    private static final CSVFormat TEST_FORMAT = CSVFormat.DEFAULT.builder()
+            .setHeader("id", "for", "input", "tokenized", "output", "timespan").get();
+    private static final CSVFormat TOKEN_FORMAT = CSVFormat.DEFAULT.builder()
+            .setHeader("name", "description", "value", "position").get();
 
     /**
      * Erstellt das reine Zwei-Dateien-Paket ohne Prüfbericht.
@@ -140,7 +144,7 @@ public class CsvExportService {
 
     private String rulesCsvText(List<Rule> rules) throws IOException {
         try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(RULE_HEADERS).get())) {
+             CSVPrinter printer = new CSVPrinter(writer, RULE_FORMAT)) {
             for (Rule rule : rules) {
                 printer.printRecord(
                         rule.getId(),
@@ -156,7 +160,7 @@ public class CsvExportService {
 
     private String testsCsvText(List<RuleTest> tests) throws IOException {
         try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(TEST_HEADERS).get())) {
+             CSVPrinter printer = new CSVPrinter(writer, TEST_FORMAT)) {
             for (RuleTest test : tests) {
                 printer.printRecord(
                         test.getId(),
@@ -173,7 +177,7 @@ public class CsvExportService {
 
     private String tokenCsvText(List<Token> tokens) throws IOException {
         try (StringWriter writer = new StringWriter();
-             CSVPrinter printer = new CSVPrinter(writer, CSVFormat.DEFAULT.builder().setHeader(TOKEN_HEADERS).get())) {
+             CSVPrinter printer = new CSVPrinter(writer, TOKEN_FORMAT)) {
             for (Token token : tokens) {
                 if (token.values().isEmpty()) {
                     printer.printRecord(token.name(), token.description(), "", "");

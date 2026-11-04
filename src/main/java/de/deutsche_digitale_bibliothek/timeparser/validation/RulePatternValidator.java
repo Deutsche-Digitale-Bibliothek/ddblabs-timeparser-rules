@@ -16,6 +16,16 @@ import java.util.Map;
  * {@code M}- oder {@code G}-Zeichen sind Literale. Sonstige Masken- und
  * Musterzeichen müssen exakt übereinstimmen.</p>
  *
+ * <p>Die Sonderbedeutung von {@code MM} stammt aus der Eingabemaske, nicht aus
+ * dem Variablennamen: {@code ##}/{@code MM} definiert eine zweistellige
+ * Ziffernvariable namens {@code M}; {@code MM}/{@code NN} definiert dagegen
+ * eine Monatsnamenvariable namens {@code N}. Ein unter {@code #}-Stellen
+ * verwendetes {@code M} verlangt deshalb auch keinen Monatsbereich von 01 bis 12.
+ * Die Ausgabe referenziert den definierten Namen und übernimmt dessen Wert.
+ * Beispielsweise setzt das Ausgabemuster {@code JJJJ-NN} die Werte
+ * {@code J = 2010} und {@code N = 03} zu {@code 2010-03} zusammen, sowohl mit
+ * der Ausgabemaske {@code ####-##} als auch mit {@code ####-MM}.</p>
+ *
  * <p>Die Identität einer Variable ist ihr erster Java-{@code char}, unabhängig
  * von ihrer Breite und Maskenkategorie. {@code JJJJ/JJ} definiert daher zweimal
  * dieselbe Eingabevariable und ist unzulässig. In der Ausgabe sind wiederholte
@@ -61,7 +71,10 @@ public final class RulePatternValidator {
                 Integer inputWidth = inputVariables.get(variable.getKey());
                 if (inputWidth == null) {
                     issues.add(new Issue("outputPattern", "variable.undefined",
-                            "Die Ausgabevariable " + variable.getKey() + " ist im Eingabemuster nicht definiert."));
+                            "Die Ausgabevariable " + variable.getKey() + " ist im Eingabemuster nicht definiert."
+                                    + (variable.getKey() == 'M'
+                                    ? " Die Variablennamen aus dem Eingabemuster müssen im Ausgabemuster wiederverwendet werden. Beispiel: Bei Eingabe 03.2010 und Eingabemuster NN.JJJJ nimmt NN den Wert 03 auf. Für die Ausgabe 2010-03 lautet das Ausgabemuster daher JJJJ-NN. JJJJ-MM passt zu diesem Eingabemuster nicht."
+                                    : "")));
                 } else if (variable.getValue() > inputWidth) {
                     issues.add(new Issue("outputPattern", "variable.length",
                             "Die Ausgabevariable " + variable.getKey() + " darf nicht länger als die Eingabevariable sein."));
@@ -97,9 +110,11 @@ public final class RulePatternValidator {
      */
     public static String outputTestMask(String inputMask, String inputPattern,
                                          String outputMask, String outputPattern) {
-        if (!validate(inputMask, inputPattern, outputMask, outputPattern).isEmpty()
-                || inputMask == null || inputPattern == null || outputMask == null || outputPattern == null
+        if (inputMask == null || inputPattern == null || outputMask == null || outputPattern == null
                 || inputMask.isBlank() || inputPattern.isBlank() || outputMask.isBlank() || outputPattern.isBlank()) {
+            return null;
+        }
+        if (!validate(inputMask, inputPattern, outputMask, outputPattern).isEmpty()) {
             return null;
         }
         Map<Character, Character> valueMasks = new LinkedHashMap<>();
@@ -125,9 +140,10 @@ public final class RulePatternValidator {
     }
 
     /**
-     * Bestimmt die Breite eines Variablenvorkommens in einem zuvor geprüften Paar.
-     * Die Vorprüfung garantiert insbesondere gleiche Längen und gültige
-     * Kalenderpaare; andernfalls wären die direkten Positionszugriffe unsicher.
+     * Bestimmt die Breite eines Variablenvorkommens in einem gleich langen Paar.
+     * Kalenderpaare belegen unabhängig vom Muster zwei Stellen; deren gleiche
+     * Buchstaben prüft {@link #parse(String, String, String, String, boolean, List)}.
+     * Prüfung und Ableitung der Ausgabemaske teilen so dieselben Positionsregeln.
      */
     private static int variableWidth(String mask, String pattern, int index) {
         if (mask.charAt(index) == '#') {
@@ -165,23 +181,19 @@ public final class RulePatternValidator {
         for (int index = 0; index < mask.length();) {
             char maskCharacter = mask.charAt(index);
             char patternCharacter = pattern.charAt(index);
-            int width = 0;
-            if (maskCharacter == '#') {
-                width = 1;
-                while (index + width < mask.length()
-                        && mask.charAt(index + width) == '#'
-                        && pattern.charAt(index + width) == patternCharacter) {
-                    width++;
-                }
-            } else if ((maskCharacter == 'M' || maskCharacter == 'G')
-                    && index + 1 < mask.length() && mask.charAt(index + 1) == maskCharacter) {
+            int width = variableWidth(mask, pattern, index);
+            if (width == 2 && maskCharacter != '#') {
                 if (pattern.charAt(index + 1) != patternCharacter) {
                     issues.add(new Issue(field, "pattern.variable",
                             "Die Maske " + maskCharacter + maskCharacter
-                                    + " benötigt zwei gleiche Variablenbuchstaben an Position " + (index + 1) + "."));
+                                    + " benötigt zwei gleiche Variablenbuchstaben an Position " + (index + 1) + "."
+                                    + (maskCharacter == 'M'
+                                    ? ("Eingabe".equals(direction)
+                                        ? " Beispiel: Eingabemaske MM #### und Eingabemuster NN JJJJ: Für die Eingabe März 2010 nimmt NN die Monatszahl 03 und JJJJ das Jahr 2010 auf."
+                                        : " Beispiel: Ausgabemaske ####-MM und Ausgabemuster JJJJ-NN: Mit NN = 03 und JJJJ = 2010 entsteht die Ausgabe 2010-03.")
+                                    : "")));
                     return null;
                 }
-                width = 2;
             }
 
             if (width > 0) {
@@ -192,7 +204,10 @@ public final class RulePatternValidator {
                 } else if (!allowReuse && variables.containsKey(patternCharacter)) {
                     issues.add(new Issue(field, "variable.duplicate",
                             "Die Variable " + patternCharacter + " kommt im " + direction
-                                    + "muster mehrfach vor. Unterschiedliche Variablennamen wie JJJJ/ZZZZ sind erforderlich."));
+                                    + "muster mehrfach vor. Unterschiedliche Variablennamen wie JJJJ/ZZZZ sind erforderlich."
+                                    + (patternCharacter == 'M'
+                                    ? " Beispiel: Eingabemaske ##.##, Eingabemuster MM.NN und Eingabe 03.04: MM nimmt 03 auf, NN nimmt 04 auf. So bleiben die beiden Werte getrennt."
+                                    : "")));
                     valid = false;
                 } else {
                     // Jede Verwendung muss in die Eingabevariable passen, auch die längste.

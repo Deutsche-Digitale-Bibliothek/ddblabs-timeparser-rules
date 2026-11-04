@@ -28,6 +28,54 @@ class SqliteRuleRepositoryTest {
     Path tempDir;
 
     @Test
+    void reservesIdsOfReplacedRowsBeforeAssigningIdsToNewRulesAndTests() {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm original = group("Bestehende IDs");
+        var first = rule("####", "JJJJ", "####", "JJJJ");
+        first.setId("R1");
+        var firstTest = test("1900", "1900", "1900", "");
+        firstTest.setId("T1");
+        first.getTests().add(firstTest);
+        original.getRules().add(first);
+        long groupId = repository.createGroup(original);
+
+        RuleGroupForm edited = repository.findGroupForm(groupId);
+        var second = rule("###", "JJJ", "0###", "0JJJ");
+        second.getTests().add(test("800", "800", "0800", ""));
+        edited.getRules().add(second);
+        edited.getRules().getFirst().getTests().add(test("1950", "1950", "1950", ""));
+        repository.updateGroup(edited);
+
+        RuleGroupForm stored = repository.findGroupForm(groupId);
+        assertThat(stored.getRules()).extracting(RuleGroupForm.RuleVariantForm::getId).containsExactly("R1", "R2");
+        assertThat(stored.getRules().getFirst().getTests()).extracting(RuleGroupForm.TestForm::getId)
+                .containsExactly("T1", "T2");
+        assertThat(stored.getRules().getLast().getTests().getFirst().getId()).isEqualTo("T3");
+    }
+
+    @Test
+    void generatesIdsBeyondTheIntegerRange() {
+        SqliteRuleRepository repository = repository();
+        RuleGroupForm form = group("Große importierte ID");
+        var existing = rule("####", "JJJJ", "####", "JJJJ");
+        existing.setId("R999999999999999999999999");
+        var existingTest = test("1900", "1900", "1900", "");
+        existingTest.setId("T999999999999999999999999");
+        existing.getTests().add(existingTest);
+        form.getRules().add(existing);
+        repository.createGroup(form);
+
+        RuleGroupForm next = group("Neue IDs");
+        var nextRule = rule("###", "JJJ", "0###", "0JJJ");
+        nextRule.getTests().add(test("800", "800", "0800", ""));
+        next.getRules().add(nextRule);
+        RuleGroupForm stored = repository.findGroupForm(repository.createGroup(next));
+
+        assertThat(stored.getRules().getFirst().getId()).isEqualTo("R1000000000000000000000000");
+        assertThat(stored.getRules().getFirst().getTests().getFirst().getId()).isEqualTo("T1000000000000000000000000");
+    }
+
+    @Test
     void expandsPlaceholdersInTestsWithRuleTokens() {
         SqliteRuleRepository repository = repository();
         RuleGroupForm form = group("Test-Platzhalter mit Regel-Token");
