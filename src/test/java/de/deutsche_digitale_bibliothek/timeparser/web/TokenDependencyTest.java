@@ -60,6 +60,31 @@ class TokenDependencyTest {
     }
 
     @Test
+    void creatingATokenIgnoresAnExistingIdSubmittedWithTheNewForm() {
+        long existingId = createToken("marker", "ca.");
+        long affectedGroup = repository.createGroup(ruleTokenGroup("~marker"));
+        TokenForm incoming = new TokenForm();
+        incoming.setId(existingId);
+        incoming.setName("newmarker");
+        incoming.setValues("etwa");
+        var errors = new BeanPropertyBindingResult(incoming, "tokenForm");
+        var redirect = new RedirectAttributesModelMap();
+
+        assertThat(controller.saveToken(incoming, errors, new ExtendedModelMap(), redirect))
+                .isEqualTo("redirect:/tokens");
+
+        assertThat(errors.hasErrors()).isFalse();
+        assertThat(incoming.getId()).isNull();
+        assertThat(repository.findTokenForm(existingId).getName()).isEqualTo("marker");
+        assertThat(repository.findTokenForm(existingId).getValues()).isEqualTo("ca.");
+        assertThat(repository.findTokenForm(tokenId("newmarker")).getValues()).isEqualTo("etwa");
+        assertThat(tokenId("newmarker")).isNotEqualTo(existingId);
+        assertThat(repository.groupsUsingToken(existingId)).extracting(RuleGroupSummary::id)
+                .containsExactly(affectedGroup);
+        assertThat(redirect.getFlashAttributes()).containsKey("message").doesNotContainKey("tokenAffectedGroups");
+    }
+
+    @Test
     void reportsAffectedGroupsAfterUpdatingTokenValues() {
         long approx = tokenId("approx");
         long ruleGroup = repository.createGroup(ruleTokenGroup("~aprox"));

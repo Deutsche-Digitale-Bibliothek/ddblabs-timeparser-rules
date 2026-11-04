@@ -68,7 +68,8 @@ public class TokenController {
     }
 
     /**
-     * Validiert und speichert einen neuen Platzhalter.
+     * Validiert und speichert einen neuen Platzhalter. Eine mitgesendete ID
+     * wird verworfen; vorhandene Platzhalter verändert nur die Bearbeitungsroute.
      *
      * @param tokenForm gebundener Name, Beschreibung und mehrzeiliger Werteblock
      * @param bindingResult Bean-Validation- und Namenskonfliktfehler
@@ -136,6 +137,9 @@ public class TokenController {
                              Model model,
                              RedirectAttributes redirectAttributes,
                              Long tokenId) {
+        // Der Aufrufpfad bestimmt die Identität: POST /tokens legt immer an;
+        // nur die Bearbeitungsroute darf eine vorhandene ID weiterreichen.
+        form.setId(tokenId);
         if (repository.tokenNameExists(form.getName(), tokenId)) {
             bindingResult.rejectValue("name", "token.name.duplicate", "Dieser Platzhaltername wird bereits verwendet.");
         }
