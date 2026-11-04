@@ -18,6 +18,8 @@ Die Anwendung pflegt Vorlagen für Regeln und Beispiele des Timeparsers. Sie spe
 
 Die `package-info.java`-Dateien beschreiben die Verantwortung der einzelnen Pakete. Die Javadocs an Klassen und Methoden erläutern deren Verträge und die nicht unmittelbar sichtbaren Entscheidungen.
 
+Die gemeinsame Navigation liegt in `templates/fragments/navigation.html`. Ihr Parameter bestimmt den aktiven Bereich; Thymeleaf ergänzt weiterhin den konfigurierten Kontextpfad. `static/js/rule-tables.js` initialisiert die fünf Listentabellen anhand ihrer `data-rule-table`-Attribute. `data-table-language` wählt die bisherigen Sprachvarianten, `data-action-column` kennzeichnet eine nicht sortier- oder durchsuchbare Aktionsspalte. Die Detailansicht behält ihre eigene Formular- und Fehlerfreigabelogik.
+
 ## Vorlagen, Varianten und IDs
 
 Eine Regelgruppe enthält gespeicherte Regelvorlagen; jede Vorlage hat eigene Testvorlagen. `RuleGroupForm` bildet diese Bearbeitungsstruktur ab. Die Felder dürfen Platzhalter wie `~approx` enthalten. Die Datenbank speichert diesen Text unverändert.
@@ -33,6 +35,8 @@ Das Repository unterscheidet intern:
 
 Neue gespeicherte Vorlagen erhalten technische IDs wie `R42` und `T42`. Vorschauen für neue Zeilen arbeiten mit vorläufigen IDs. Erzeugte Varianten verwenden möglichst die Vorlagen-ID und anschließend Suffixe wie `R42_2`; Kollisionen werden innerhalb eines Generierungslaufs umgangen. Diese IDs können sich bei anderer Variantenreihenfolge ändern. Links zur Bearbeitung verwenden deshalb die gespeicherte Vorlagen-ID.
 
+`IdSequence` ermittelt den höchsten numerischen Suffix einmal pro Speichervorgang und zählt anschließend weiter. Dabei sind auch IDs des aktuellen Formulars reserviert: Beim Ersetzen einer Gruppe wurden deren Datenbankzeilen bereits gelöscht, ihre IDs dürfen dennoch nicht erneut vergeben werden. Der Zähler verwendet `BigInteger`, damit große importierte IDs nicht zu Überläufen führen.
+
 ## Ablauf beim Bearbeiten
 
 ```mermaid
@@ -43,6 +47,8 @@ flowchart TD
     C --> P[preview: konkrete Regeln und Tests]
     E --> D{Fehler vorhanden?}
     D -->|ja| V[Formular mit Feldfehlern]
+    V --> Z{Explizite Fehlerfreigabe für diesen Prüfstand?}
+    Z -->|ja, erneut geprüft| S
     D -->|nein, Speichern| S[Vorlagen in SQLite schreiben]
     D -->|nein, Vorschau| V
     N --> V
@@ -52,6 +58,8 @@ flowchart TD
 
 Hinzufügen, Duplizieren und Entfernen im Formular verändern zunächst nur den übertragenen Formularstand. Die vollständige Gruppe wird erst beim Speichern geschrieben. Der Repository-Schreibzugriff führt die Formularprüfung nicht selbst aus; neue Aufrufer müssen diese Reihenfolge beachten. Auch der optionale initiale CSV-Import verwendet die Formularvalidierung nicht.
 
+Bereits das Öffnen einer gespeicherten Gruppe führt die gemeinsame Fachvalidierung aus und stellt ein `BindingResult` für die bestehenden Feldmarkierungen bereit. Gespeicherte leere oder unvollständige Vorlagen bleiben dabei erhalten und sichtbar; die Bereinigung neuer Hilfszeilen gehört weiterhin zum Vorschau- und Speicherpfad.
+
 Beim Aktualisieren einer Gruppe werden ihre Regel- und Testzeilen ersetzt. Vorhandene mitgegebene IDs bleiben erhalten; IDs neuer Zeilen werden vergeben, ohne sie in das übergebene Formular zurückzuschreiben. Der Redirect lädt anschließend den gespeicherten Stand.
 
 ## Fehler und Hinweise
@@ -60,7 +68,7 @@ Beide Arten verwenden `RulePatternValidator.Issue`. Die Bedeutung ergibt sich au
 
 | Prüfweg | Bedeutung | Behandlung |
 | --- | --- | --- |
-| `validationIssues(form)` | Pflichtfelder, Struktur, Masken-/Musterfehler, nicht auflösbare Platzhalter, Dubletten und konkrete Feldfehler | `RuleGroupFormValidator` bindet sie an Spring-Feldfehler; Speichern wird verhindert. |
+| `validationIssues(form)` | Pflichtfelder, Struktur, Masken-/Musterfehler, nicht auflösbare Platzhalter, Dubletten und konkrete Feldfehler | `RuleGroupFormValidator` bindet sie an Spring-Feldfehler; reguläres Speichern wird verhindert. Eine gesonderte ausdrückliche Fehlerfreigabe erlaubt das Speichern des geprüften Stands. |
 | `validationNotices(form)` | fehlende Tests je erzeugter Variante und mögliche Überschneidungen gleich spezifischer Masken | Anzeige zusätzlich zur Vorschau; Speichern bleibt möglich. |
 | `plausibilityWarnings()` | zusammengeführte Befunde zu gespeicherten Gruppen, einschließlich Dublettenfundstellen | Verlinkbare Darstellung; kein Exportverbot. |
 
@@ -68,15 +76,31 @@ Ein `Issue.field` ist entweder ein relativer Feldname wie `outputPattern` oder n
 
 Speicherfehler werden einmal je Feldpfad und Prüfcode ausgegeben; der zuerst erfasste Meldungstext bleibt erhalten. Unterschiedliche Prüfcodes am selben Feld und derselbe Code an verschiedenen Feldern bleiben getrennt. Variantenbezogene Hinweise werden nicht nach diesem Schlüssel zusammengeführt, da ihre Meldungen unterschiedliche Varianten beschreiben können.
 
+Der Fehlerindex verwendet dafür einen `IssueKey` aus Feld und Code. Regel- und Testgleichheit vergleichen dagegen unveränderliche Listen ihrer Feldwerte; Testschlüssel enthalten zusätzlich die Regelwerte. Dadurch bleiben Feldgrenzen selbst dann eindeutig, wenn eingegebene Werte Steuerzeichen enthalten. Ein Zeichen als Feldtrenner wäre hierfür nicht ausreichend.
+
 Die Prüfung einer bearbeiteten Gruppe vergleicht sie mit anderen Gruppen und dem neuen Formularstand. Ihre bisherige gespeicherte Fassung wird ausgenommen, damit unveränderte Daten nicht als Dubletten ihrer eigenen Fassung gelten.
 
+Eine Fehlerfreigabe wird nur angeboten, nachdem die aktuellen Fachfehler angezeigt wurden. Dafür enthält die Detailansicht einen serverseitig signierten Prüfstand und eine gesonderte Submit-Aktion `saveInvalid=true`; der normale Speicherknopf übermittelt keine Zustimmung. `validationReview` bindet die Freigabe an Formularinhalt, IDs und Reihenfolge sowie die angezeigten Fehler. Jeder Speicheraufruf validiert erneut. Ein fehlender oder nicht mehr passender Prüfstand führt zur erneuten Fehleranzeige, ohne Daten zu schreiben. Tatsächliche Binding-/Typfehler bleiben auch mit Zustimmung blockierend.
+
+Eine Zustimmung wird weder gespeichert noch bei erneut angezeigten Formularen vorbelegt. Die Oberfläche deaktiviert die Fehlerfreigabe schon bei Eingaben; der Server überprüft unabhängig davon den Prüfstand. Nach Änderungen oder neuen Fehlern ist eine erneute ausdrückliche Zustimmung erforderlich. Bestätigt gespeicherte Fachfehler bleiben beim erneuten Öffnen und im Plausibilitätscheck erkennbar.
+
 Der Gesamtcheck lädt Gruppenmetadaten, Regel- und Testvorlagen sowie Platzhalter in einer festen Anzahl von Datenbankabfragen. Ein aufrufgebundener `ValidationContext` expandiert den Vergleichsbestand einmal und hält Suchindizes für Eingabemasken, Gruppen und Testsignaturen bereit. Die Formularstruktur wird aus den bereits gelesenen Vorlagen aufgebaut. Mögliche Maskenüberschneidungen werden nur innerhalb kompatibler Zeichenstrukturen und gleicher Anzahl von `#`-Stellen verglichen; `RuleMaskOverlap.witness` entscheidet weiterhin über den tatsächlichen statischen Hinweis. Es gibt keinen Cache zwischen Aufrufen, sodass Regel- und Platzhalteränderungen unmittelbar berücksichtigt werden. Der Export verwendet dieselbe Aufbereitung.
+
+Der Kontext indiziert außerdem die Varianten je Regelvorlage. Der Export prüft einen nicht zugeordneten Test nur gegen diese Varianten statt wiederholt gegen den gesamten Bestand. Die abgeleitete Ausgabeprüfmaske wird je konkreter Regel einmal berechnet und für deren Testfälle wiederverwendet. Diese Optimierungen verändern weder die Reihenfolge noch den Inhalt der Befunde.
 
 Bei generierten Regeldubletten und Transformationskonflikten nennt der Feldfehler die vorhandene Regel-ID, Regelgruppe und Vorlage. `Issue.relatedRules` bewahrt diese Fundstellen strukturiert; die Plausibilitätsansicht verlinkt sowohl die geprüfte Regel als auch die Fundstelle. Der Link verwendet die Vorlagen-ID, auch wenn die angezeigte generierte ID ein Variantensuffix enthält.
 
 ## Masken- und Testverträge
 
-Masken und Muster werden mit Java-`char`-Indizes und damit UTF-16-Längen verglichen. Gleiche Musterbuchstaben unter zusammenhängenden `#`-Stellen bilden eine Variable. `MM` und `GG` bilden Zweierpaare für Monats- und Wochentagsvariablen; sonstige Zeichen sind Literale. Der Variablenname ist der Buchstabe, nicht die gesamte Zeichenfolge.
+Masken und Muster werden mit Java-`char`-Indizes und damit UTF-16-Längen verglichen. Die Maske bestimmt die Zeichenkategorie; gleiche Musterbuchstaben an den entsprechenden Zeichenpositionen benennen einen Wert. Wenn die Eingabemaske dort zusammenhängende `#`-Zeichen enthält, entsteht eine Ziffernvariable. Die Maskenpaare `MM` und `GG` kennzeichnen Monats- und Wochentagsersetzungen und benötigen jeweils zwei gleiche Musterbuchstaben; sonstige Maskenzeichen sind Literale. Der erste Musterbuchstabe ist intern der Name, die Anzahl seiner Wiederholungen ist die Breite. `NN` bezeichnet damit einen Wert namens N mit zwei Zeichen, nicht zwei getrennte N-Werte. Diese Namen besitzen keine reservierte Datumsbedeutung.
+
+Bei Eingabemaske `##.####`, Eingabemuster `NN.JJJJ` und Eingabe `03.2010` erfasst `NN` den Wert `03`, während `JJJJ` den Wert `2010` erfasst. Mit Ausgabemaske `####-##` und Ausgabemuster `JJJJ-NN` werden diese Werte zu `2010-03` zusammengesetzt. Wird das Eingabemuster in `MM.JJJJ` geändert, erhält die erste Ziffernvariable den Namen M mit Breite zwei; `MM` erfasst weiterhin `03`. Das passende Ausgabemuster lautet dann `JJJJ-MM`.
+
+Für Monatsnamen lautet die **Eingabemaske** dagegen beispielsweise `MM ####`; das **Eingabemuster** kann `NN JJJJ` lauten. `März 2010` wird für die Regelauswahl zu `MM 2010` tokenisiert. Bei der anschließenden Transformation liefert die Monatsersetzung den Wert `03`, den das Eingabemuster als N mit Breite zwei erfasst. Das **Ausgabemuster** `JJJJ-NN` setzt diesen Wert mit dem Jahr zu `2010-03` zusammen. Diese Umwandlung führt ausschließlich der Timeparser aus, nicht dieser Editor.
+
+Die **Ausgabemaske** `####-MM` wird mit **Ausgabemuster** `JJJJ-NN` ebenfalls als Ausgabe mit zwei Variablenstellen nach dem Bindestrich verarbeitet. Stammt N wie im Beispiel aus `03`, entsteht konkret `2010-03`: Die Maskenzeichen `MM` werden durch den von `NN` bezeichneten Wert ersetzt. Sie werden weder als Buchstaben `MM` ausgegeben noch in einen Monatsnamen umgewandelt. Der `Outputter` übernimmt den Wert anhand des Namens aus dem Ausgabemuster; die Ausgabekategorie entscheidet nicht über diesen Wert. Für die numerische Ausgabe ist die Ausgabemaske `####-##` deutlicher lesbar.
+
+Die Regelauswahl unterscheidet ausschließlich Eingabemasken. Bei **Eingabemaske** `##.####` und **Eingabemuster** `NN.JJJJ` erfassen die ersten beiden Stellen den Wert `03`; **Ausgabemaske** `####` und **Ausgabemuster** `JJJJ` lassen diesen Wert weg und liefern `2010`. Mit **Eingabemuster** `MM.JJJJ`, **Ausgabemaske** `####-##` und **Ausgabemuster** `JJJJ-MM` wird `03` übernommen und `2010-03` ausgegeben. Beide Regeln bleiben wegen derselben Eingabemaske ein Transformationskonflikt. Ein anderer Variablenname schafft keine neue Eingabeform.
 
 Im Eingabemuster darf ein Name nur einmal definiert werden. Die Ausgabe darf eine Eingabevariable mehrfach und gekürzt verwenden. Jede Verwendung muss in die Eingabebreite passen; die längste Verwendung bestimmt somit die notwendige Breite. Führende Nullen müssen als Literale modelliert werden. Beispielsweise ergibt `###` / `JJJ` nach `0###` / `0JJJ` eine vierstellige Ausgabeform.
 

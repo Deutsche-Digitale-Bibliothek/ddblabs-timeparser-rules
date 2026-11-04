@@ -10,7 +10,8 @@ Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale 
 - zugehörige Regeln und Tests direkt in der Detailansicht pflegen
 - IDs und Beziehungen automatisch vergeben
 - Platzhalter/Tokens wie `~approx` verwalten und in Regeln/Tests expandieren
-- gemeinsame Validierung beim Anlegen, Bearbeiten, in der Vorschau und im Plausibilitätscheck
+- gemeinsame Validierung bereits beim Öffnen sowie beim Anlegen, Bearbeiten, in der Vorschau und im Plausibilitätscheck
+- Speichern fehlerhafter Regelgruppen nur nach ausdrücklicher Zustimmung zum angezeigten Prüfstand
 - sichtbare Darstellung relevanter Leerzeichen in Token-Werten und Plausibilitätsmeldungen
 - CSV-Export als Download-ZIP für `rules.csv` und `tests.csv`
 - separater CSV-Export für Tokens
@@ -78,29 +79,57 @@ name,description,value,position
 
 ### Masken und Muster
 
-Jede Regel besteht aus Eingabe- und Ausgabe-Maske sowie den passenden Mustern. Maske und Muster müssen jeweils gleich lang sein.
+Jede Regel besteht aus Eingabemaske, Eingabemuster, Ausgabemaske und Ausgabemuster. Eingabemaske und Eingabemuster beziehen sich auf dieselben Zeichenpositionen der Eingabe; dasselbe gilt für Ausgabemaske und Ausgabemuster in der Ausgabe. **Die Maske beschreibt die Stellen, das Muster kennzeichnet zusammengehörige Werte.** Maske und Muster müssen deshalb jeweils gleich lang sein. Die verwendeten Buchstaben sind frei wählbar.
 
-| Maskenzeichen | Musterzeichen | Bedeutung |
+| Zeichen in der Eingabemaske | Zeichen an denselben Stellen im Eingabemuster | Bedeutung |
 | --- | --- | --- |
-| `#` | Buchstabe | eine Ziffer; mehrere gleiche Musterbuchstaben bilden eine Variable, z. B. `####` / `JJJJ` |
-| `MM` | zwei gleiche Buchstaben | Monatsvariable nach der Tokenisierung, z. B. `MM` / `MM` |
+| `##` | `NN` | Die zwei Ziffern dieser Eingabestellen werden als ein Wert erfasst, z. B. `03`. Im Muster kennzeichnet `NN` diesen Wert. |
+| `##` | `MM` | Dieselben zwei Ziffern werden erfasst, z. B. `03`. Diesmal kennzeichnet `MM` den Wert. |
+| `MM` | `NN` | Ein erkannter Monatsname wird verarbeitet, z. B. `März`; sein Monatswert `03` wird mit `NN` gekennzeichnet. |
 | `GG` | zwei gleiche Buchstaben | Wochentagsvariable nach der Tokenisierung |
 | sonstiges Zeichen | gleiches Zeichen | Literal, muss exakt passen; das gilt auch für Leerzeichen |
 
-Übliche Variablennamen:
+Ein durchgängiges Beispiel für die Eingabe `03.2010`:
+
+| Feld | Wert | Wirkung |
+| --- | --- | --- |
+| Eingabemaske | `##.####` | Erwartet zwei Ziffern, einen Punkt und vier Ziffern. |
+| Eingabemuster | `NN.JJJJ` | `NN` erfasst `03`; `JJJJ` erfasst `2010`. |
+| Ausgabemaske | `####-##` | Beschreibt vier Ausgabestellen, einen Bindestrich und zwei Ausgabestellen. |
+| Ausgabemuster | `JJJJ-NN` | Setzt den erfassten Wert `2010`, den Bindestrich und den erfassten Wert `03` zu `2010-03` zusammen. |
+
+Der Buchstabe legt den Namen fest, die Anzahl gleicher Buchstaben legt die Breite fest: `NN` besteht aus zwei `N` und erfasst zwei Zeichen als einen Wert; `JJJJ` besteht aus vier `J` und erfasst vier Zeichen. Wird im Beispiel das Eingabemuster `MM.JJJJ` verwendet, erfasst `MM` die gleichen Ziffern `03`. Das dazu passende Ausgabemuster lautet dann `JJJJ-MM`. Die Buchstaben `MM` im Muster kennzeichnen hier also den erfassten Wert `03`.
+
+Für einen **Monatsnamen** steht dagegen `MM` in der **Eingabemaske**. Beispielsweise wird `März 2010` für die Regelauswahl zu `MM 2010` tokenisiert. Die Eingabemaske `MM ####` und das Eingabemuster `NN JJJJ` erfassen diesen Monatsnamen und das Jahr; bei der Transformation erhält `NN` den Monatswert `03`. Das Ausgabemuster `JJJJ-NN` setzt daraus `2010-03` zusammen. `##` in der Eingabemaske erwartet tatsächlich Ziffern und passt daher zu `03`, nicht zu einem Monatsnamen.
+
+Übliche Variablennamen als Konvention, nicht als reservierte Datumsfelder:
 
 | Muster | Bedeutung |
 | --- | --- |
-| `JJJJ` | vierstelliges Jahr |
-| `J`, `JJ`, `JJJ` | ein-, zwei- oder dreistellige Jahresvariablen |
-| `JJJJJ`, `JJJJJJ`, ... | längere Jahresvariablen für große Jahreszahlen |
-| `TT` | zweistelliger Tag |
-| `MM` | Monatsvariable |
-| `WWWW`, `XXXX`, `YYYY`, `ZZZZ` | weitere Jahresvariablen in Bereichen oder zusammengesetzten Ausdrücken |
+| `JJJJ` | häufig für ein vierstelliges Jahr |
+| `J`, `JJ`, `JJJ` | häufig für ein-, zwei- oder dreistellige Jahreswerte |
+| `JJJJJ`, `JJJJJJ`, ... | häufig für längere Jahreswerte |
+| `TT` | häufig für einen zweistelligen Tag |
+| `MM` | häufig für einen Monatswert; bei Eingabemaske `##` ein Wert aus zwei Ziffern, bei Eingabemaske `MM` ein Wert aus einem Monatsnamen |
+| `NN`, `WWWW`, `XXXX`, `YYYY`, `ZZZZ` | andere frei wählbare Variablennamen, etwa für weitere Jahres- oder Bereichswerte |
+
+Die Unterscheidung wird an diesen Regeln deutlich:
+
+| Eingabemaske | Eingabemuster | Ausgabemaske | Ausgabemuster | Beispiel und Wirkung |
+| --- | --- | --- | --- | --- |
+| `##.####` | `NN.JJJJ` | `####` | `JJJJ` | `03.2010` → `2010`: `NN` erfasst `03`, wird aber im Ausgabemuster weggelassen. |
+| `##.####` | `MM.JJJJ` | `####-##` | `JJJJ-MM` | `03.2010` → `2010-03`: `MM` erfasst `03` und wird im Ausgabemuster übernommen. |
+| `MM ####` | `NN JJJJ` | `####-##` | `JJJJ-NN` | `März 2010` → `2010-03`: Der Monatswert `03` wird mit `NN` erfasst und ausgegeben. |
+
+Die zweite Regel kann ebenso `NN.JJJJ` und `JJJJ-NN` als Muster verwenden. Die Regelauswahl richtet sich nach der **Eingabemaske**, nicht nach den Variablennamen. Deshalb konkurrieren die ersten beiden Regeln trotz `NN` beziehungsweise `MM` um dieselben Eingaben und werden als Transformationskonflikt gemeldet.
+
+Die **Ausgabemaske** legt die Stellen für die Werte fest; das **Ausgabemuster** legt fest, welcher zuvor erfasste Wert dort eingesetzt wird. Im durchgängigen Beispiel kann die Ausgabemaske auch `####-MM` lauten: Zusammen mit dem Ausgabemuster `JJJJ-NN` entsteht weiterhin `2010-03`. Die beiden `M` der Ausgabemaske markieren hier zwei Stellen für den Wert `03`; ausgegeben werden weder die Buchstaben `MM` noch der Name `März`. Für diese numerische Ausgabe ist `####-##` die leichter lesbare Ausgabemaske.
 
 Jeder Variablenname darf im Eingabemuster nur einmal definiert sein. Maßgeblich ist der Buchstabe, unabhängig von der Länge: `JJJJ/JJJJ` und `JJJJ/JJ` sind als Eingabemuster ungültig, `JJJJ/ZZZZ` ist gültig. In der Ausgabe darf dieselbe Eingabevariable mehrfach verwendet werden, z. B. `JJJ0/JJJ9` für `195?` → `1950/1959`. Jede Verwendung muss im Eingabemuster definiert sein und darf höchstens dessen Variablenlänge haben. Buchstaben in Literaltext zählen nicht als Variablen. Führende Nullen werden als Literale ergänzt, beispielsweise `###` / `JJJ` nach `0###` / `0JJJ`.
 
 Die gemeinsame Prüfung erfasst außerdem Pflichtfelder, fehlende Regeln oder Tests, Literal- und Längenfehler, Testwerte passend zu den Masken, ISO-Zeiträume, unbekannte Platzhalter sowie doppelte Regeln und Tests. Sie prüft die konkreten Varianten nach der Platzhalterexpansion; Fehler in bestehenden oder importierten Gruppen erscheinen mit einer Verknüpfung zur betroffenen Regel im Plausibilitätscheck.
+
+Beim Öffnen einer gespeicherten Regelgruppe erscheinen vorhandene Fehler unmittelbar an den betroffenen Feldern. „Speichern“ prüft den aktuellen Stand erneut und speichert fehlerhafte Gruppen zunächst nicht. Nach Anzeige der Fehler ermöglicht die gesonderte Aktion „Fehler akzeptieren und trotzdem speichern“ eine ausdrückliche Zustimmung. Diese gilt nur für den angezeigten Formularinhalt und die aktuellen Fehler; nach Änderungen ist eine erneute Prüfung und Zustimmung erforderlich. Die gespeicherten Fehler bleiben im Plausibilitätscheck sichtbar. Technische Bindungsfehler lassen sich nicht auf diese Weise übergehen.
 
 Zusätzlich erscheinen unverbindliche Hinweise auf erzeugte Varianten ohne passenden Test und auf mögliche Überschneidungen unterschiedlicher Masken mit gleicher Anzahl von `#`-Stellen. Diese Hinweise verhindern das Speichern nicht. Die Überschneidungsprüfung betrachtet Ziffern, Literale und Leerzeichen; sie bildet nicht die vollständige Auswahl- und Priorisierungslogik des Timeparsers nach.
 
@@ -112,9 +141,9 @@ Beispiel:
 Eingabe:        März 2010
 tokenized:      MM 2010
 inputMask:      MM ####
-inputPattern:   MM JJJJ
+inputPattern:   NN JJJJ
 outputMask:     ####-##
-outputPattern:  JJJJ-MM
+outputPattern:  JJJJ-NN
 output:         2010-03
 ```
 
