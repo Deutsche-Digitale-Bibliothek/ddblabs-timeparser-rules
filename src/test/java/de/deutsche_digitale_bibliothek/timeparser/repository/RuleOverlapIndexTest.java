@@ -3,6 +3,7 @@ package de.deutsche_digitale_bibliothek.timeparser.repository;
 import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
 import de.deutsche_digitale_bibliothek.timeparser.validation.RuleMaskOverlap;
 import de.deutsche_digitale_bibliothek.timeparser.validation.RulePatternValidator.Issue;
+import de.deutsche_digitale_bibliothek.timeparser.validation.RulePatternValidator.RelatedRule;
 import de.deutsche_digitale_bibliothek.timeparser.web.RuleGroupForm;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,10 +18,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 class RuleOverlapIndexTest {
 
-    private static final char[] ALPHABET = {'#', '0', '1', ' ', '\u00A0', 'a'};
+    private static final char[] ALPHABET = {'#', '0', '1', ' ', '\u00A0', '\u202F', 'a'};
 
     @TempDir
     Path tempDir;
@@ -51,31 +53,59 @@ class RuleOverlapIndexTest {
             for (int previous = 0; previous < current; previous++) {
                 var example = RuleMaskOverlap.witness(masks.get(current), masks.get(previous));
                 if (example.isPresent()) {
-                    expected.add(overlap(current, "R" + (previous + 1), example.get()));
+                    expected.add(overlap(current, "R" + (current + 1), "R" + (previous + 1), 0, example.get()));
                 }
             }
         }
 
-        assertThat(overlaps(form)).containsExactlyElementsOf(expected);
+        assertOverlaps(overlaps(form), expected);
         assertThat(expected).isNotEmpty();
     }
 
     @Test
-    void comparesStoredGroupsWithCompatibleWhitespaceAndRejectsConflictingDigits() {
+    void comparesStoredGroupsWithExactWhitespaceAndRejectsConflictingDigits() {
         RuleGroupForm compatible = group("Passende Leerzeichen");
         compatible.getRules().add(rule("R1", "1#0 \u00A0"));
-        repository.createGroup(compatible);
+        long compatibleId = repository.createGroup(compatible);
         RuleGroupForm differentDigit = group("Andere feste Ziffer");
         differentDigit.getRules().add(rule("R2", "2#0 \u00A0"));
         repository.createGroup(differentDigit);
         RuleGroupForm differentSpecificity = group("Andere Anzahl von Ziffernstellen");
         differentSpecificity.getRules().add(rule("R3", "1## \u00A0"));
         repository.createGroup(differentSpecificity);
+        RuleGroupForm narrowSpace = group("Schmales geschütztes Leerzeichen");
+        narrowSpace.getRules().add(rule("R4", "1#0 \u202F"));
+        repository.createGroup(narrowSpace);
+        RuleGroupForm swappedSpaces = group("Vertauschte Leerzeichen");
+        swappedSpaces.getRules().add(rule("R5", "1#0\u00A0 "));
+        repository.createGroup(swappedSpaces);
 
         RuleGroupForm incoming = group("Neue Maske");
-        incoming.getRules().add(rule("R4", "10#\u00A0 "));
+        incoming.getRules().add(rule("R6", "10# \u00A0"));
 
-        assertThat(overlaps(incoming)).containsExactly(overlap(0, "R1", "100\u00A0 "));
+        assertOverlaps(overlaps(incoming), List.of(overlap(0, "R6", "R1", compatibleId, "100 \u00A0")));
+    }
+
+    @Test
+    void keepsBeforeChristWhitespaceVariantsDistinctWithinTheSameTemplate() {
+        var token = repository.findTokenForm(repository.findTokens().stream()
+                .filter(value -> value.name().equals("vchr")).findFirst().orElseThrow().id());
+        token.setValues("v. Chr.\nv.\u00A0Chr.\nv.\u202FChr.");
+        repository.saveToken(token);
+        RuleGroupForm form = group("Vor Christus mit verschiedenen Leerzeichen");
+        var beforeChrist = rule("R348", "######## ~vchr");
+        beforeChrist.setOutputMask("-########");
+        beforeChrist.setOutputPattern("-JJJJJJJJ");
+        form.getRules().add(beforeChrist);
+
+        assertThat(repository.previewRules(form)).extracting(value -> value.getInputMask())
+                .containsExactly("######## v. Chr.", "######## v.\u00A0Chr.", "######## v.\u202FChr.");
+        assertThat(overlaps(form)).isEmpty();
+
+        long groupId = repository.createGroup(form);
+        assertThat(overlaps(repository.findGroupForm(groupId))).isEmpty();
+        assertThat(repository.plausibilityWarningsForGroup(groupId))
+                .noneMatch(warning -> warning.message().contains("überschneiden"));
     }
 
     private List<Issue> overlaps(RuleGroupForm form) {
@@ -96,11 +126,19 @@ class RuleOverlapIndexTest {
         }
     }
 
-    private Issue overlap(int ruleIndex, String otherId, String example) {
-        String visibleExample = example.replace(" ", "␠").replace("\u00A0", "⍽");
+    private void assertOverlaps(List<Issue> actual, List<Issue> expected) {
+        assertThat(actual).extracting(Issue::field, Issue::relatedRules)
+                .containsExactlyElementsOf(expected.stream().map(issue -> tuple(issue.field(), issue.relatedRules())).toList());
+        for (int index = 0; index < expected.size(); index++) {
+            assertThat(actual.get(index).message()).contains(expected.get(index).message());
+        }
+    }
+
+    private Issue overlap(int ruleIndex, String currentId, String otherId, long otherGroupId, String example) {
+        String visibleExample = example.replace(" ", "␠").replace("\u00A0", "⍽").replace("\u202F", "⎵");
         return new Issue("rules[" + ruleIndex + "].inputMask", "rule.mask.overlap",
-                "Die Eingabemaske könnte sich mit " + otherId + " überschneiden (Beispiel: " + visibleExample
-                        + "). Beide haben gleich viele #-Stellen. Die tatsächliche Regelauswahl ist nicht geprüft.");
+                "Beispiel: " + visibleExample,
+                List.of(new RelatedRule(currentId, 0, currentId), new RelatedRule(otherId, otherGroupId, otherId)));
     }
 
     private RuleGroupForm group(String name) {

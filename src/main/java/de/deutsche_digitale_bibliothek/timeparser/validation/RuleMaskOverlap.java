@@ -26,14 +26,14 @@ public final class RuleMaskOverlap {
      * Sucht positionsweise eine gemeinsame Belegung innerhalb des statischen Maskenmodells.
      *
      * <p>{@code #} steht ausschließlich für eine ASCII-Ziffer, alle anderen
-     * Zeichen gelten als Literale. Zwei Zeichen, für die
-     * {@link Character#isSpaceChar(char)} gilt, werden untereinander als
-     * kompatibel behandelt. Monats- und Wochentagsmarker sind in diesem Modell
-     * ebenfalls Literale; eine Tokenisierung wird nicht ausgeführt.</p>
+     * Zeichen gelten als Literale und müssen exakt übereinstimmen. Dies gilt
+     * auch für normale, geschützte und schmale geschützte Leerzeichen.
+     * Monats- und Wochentagsmarker sind in diesem Modell ebenfalls Literale;
+     * eine Tokenisierung wird nicht ausgeführt.</p>
      *
      * <p>Das Beispiel wird deterministisch aufgebaut: Zwei {@code #}-Stellen
      * erhalten {@code 0}; bei einer Ziffer gegenüber {@code #} wird die Ziffer
-     * übernommen; bei kompatiblen Leerzeichen das linke Zeichen. So ergibt
+     * übernommen; übereinstimmende Literale bleiben erhalten. So ergibt
      * {@code 1###} zusammen mit {@code ##0#} die Beispieleingabe {@code 1000}.</p>
      *
      * @param left erste expandierte Eingabemaske; darf {@code null} sein
@@ -64,8 +64,7 @@ public final class RuleMaskOverlap {
                     return Optional.empty();
                 }
                 example.append(leftCharacter);
-            } else if (leftCharacter == rightCharacter
-                    || Character.isSpaceChar(leftCharacter) && Character.isSpaceChar(rightCharacter)) {
+            } else if (leftCharacter == rightCharacter) {
                 example.append(leftCharacter);
             } else {
                 return Optional.empty();

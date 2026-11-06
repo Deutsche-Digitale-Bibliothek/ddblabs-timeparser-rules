@@ -493,8 +493,13 @@ public class SqliteRuleRepository {
             for (GeneratedRuleRow other : candidates) {
                 RuleMaskOverlap.witness(row.rule().getInputMask(), other.rule().getInputMask()).ifPresent(example ->
                         notices.add(new Issue(prefix + "inputMask", "rule.mask.overlap",
-                                "Die Eingabemaske könnte sich mit " + other.rule().getId() + " überschneiden (Beispiel: "
-                                        + visibleWhitespace(example) + "). Beide haben gleich viele #-Stellen. Die tatsächliche Regelauswahl ist nicht geprüft.")));
+                                "Die erzeugte Eingabemaske " + row.rule().getId() + " ["
+                                        + visibleWhitespace(row.rule().getInputMask()) + "] könnte sich mit "
+                                        + other.rule().getId() + " [" + visibleWhitespace(other.rule().getInputMask())
+                                        + "] überschneiden (Beispiel: " + visibleWhitespace(example)
+                                        + "). Beide haben gleich viele #-Stellen. Die tatsächliche Regelauswahl ist nicht geprüft.",
+                                List.of(new RulePatternValidator.RelatedRule(row.rule().getId(), row.groupId(), row.templateId()),
+                                        new RulePatternValidator.RelatedRule(other.rule().getId(), other.groupId(), other.templateId())))));
             }
             previousRows.computeIfAbsent(shape, ignored -> new ArrayList<>()).add(row);
         }
@@ -2050,7 +2055,8 @@ public class SqliteRuleRepository {
     /**
      * Notwendige Vorbedingung für eine statische Maskenüberschneidung: gleiche
      * Ziffern-/Literalstruktur und gleiche Anzahl von #-Stellen. ASCII-Ziffern
-     * und # teilen sich eine Kategorie, kompatible Leerzeichen ebenfalls.
+     * und # teilen sich eine Kategorie; Literale einschließlich Leerzeichen
+     * bleiben unverändert.
      * Der Schlüssel ersetzt nicht die abschließende Prüfung durch
      * {@link RuleMaskOverlap#witness(String, String)}: 1# und 2# haben etwa
      * denselben Schlüssel, aber keine gemeinsame Belegung.
@@ -2066,7 +2072,7 @@ public class SqliteRuleRepository {
             } else if (character >= '0' && character <= '9') {
                 shape.append('#');
             } else {
-                shape.append(Character.isSpaceChar(character) ? ' ' : character);
+                shape.append(character);
             }
         }
         return new MaskShape(shape.toString(), hashes);

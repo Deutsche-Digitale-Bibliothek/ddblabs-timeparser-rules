@@ -1,6 +1,8 @@
 package de.deutsche_digitale_bibliothek.timeparser.validation;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -44,10 +46,24 @@ class RuleMaskOverlapTest {
     }
 
     @Test
-    void acceptsCompatibleUnicodeSpaceCharacters() {
-        assertThat(RuleMaskOverlap.witness("1### ##", "##0#\u00a0##")).contains("1000 00");
-        assertThat(RuleMaskOverlap.witness("1###\u202f##", "##0#\u00a0##")).contains("1000\u202f00");
+    void requiresExactWhitespaceLiterals() {
+        assertThat(RuleMaskOverlap.witness("1### ##", "##0#\u00a0##")).isEmpty();
+        assertThat(RuleMaskOverlap.witness("1###\u202f##", "##0#\u00a0##")).isEmpty();
         assertThat(RuleMaskOverlap.witness("1### ##", "##0#\t##")).isEmpty();
+        assertThat(RuleMaskOverlap.witness("1### \u00a0##", "##0#\u00a0 ##")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" ", "\u00a0", "\u202f", "\u2003", "\t"})
+    void preservesMatchingWhitespaceLiterals(String whitespace) {
+        assertThat(RuleMaskOverlap.witness("1###" + whitespace + "##", "##0#" + whitespace + "##"))
+                .contains("1000" + whitespace + "00");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {" ", "\u00a0", "\u202f", "\u2003", "\t"})
+    void neverUsesWhitespaceToFillDigitPositions(String whitespace) {
+        assertThat(RuleMaskOverlap.witness("#" + whitespace, whitespace + "#")).isEmpty();
     }
 
     @Test
