@@ -35,6 +35,8 @@ Das Repository unterscheidet intern:
 
 Neue gespeicherte Vorlagen erhalten technische IDs wie `R42` und `T42`. Vorschauen für neue Zeilen arbeiten mit vorläufigen IDs. Erzeugte Varianten verwenden möglichst die Vorlagen-ID und anschließend Suffixe wie `R42_2`; Kollisionen werden innerhalb eines Generierungslaufs umgangen. Diese IDs können sich bei anderer Variantenreihenfolge ändern. Links zur Bearbeitung verwenden deshalb die gespeicherte Vorlagen-ID.
 
+Vorläufige Regel-IDs reservieren zuerst alle expliziten IDs des Formulars, auch die unvollständiger Zeilen. Neue Zeilen erhalten danach eindeutige IDs. Vorschau, Testzuordnung, Validierung und Abdeckungshinweise verwenden dieselbe Zuordnung, ohne die Formularwerte zu ändern. So bleibt beispielsweise eine neue zweite Zeile von einer vorhandenen Vorlage `R2` getrennt.
+
 `IdSequence` ermittelt den höchsten numerischen Suffix einmal pro Speichervorgang und zählt anschließend weiter. Dabei sind auch IDs des aktuellen Formulars reserviert: Beim Ersetzen einer Gruppe wurden deren Datenbankzeilen bereits gelöscht, ihre IDs dürfen dennoch nicht erneut vergeben werden. Der Zähler verwendet `BigInteger`, damit große importierte IDs nicht zu Überläufen führen.
 
 ## Ablauf beim Bearbeiten
@@ -73,6 +75,10 @@ Beide Arten verwenden `RulePatternValidator.Issue`. Die Bedeutung ergibt sich au
 | `plausibilityWarnings()` | zusammengeführte Befunde zu gespeicherten Gruppen, einschließlich Dublettenfundstellen | Verlinkbare Darstellung; kein Exportverbot. |
 
 Ein `Issue.field` ist entweder ein relativer Feldname wie `outputPattern` oder nach der Repository-Zuordnung ein vollständiger Formularpfad wie `rules[0].tests[1].output`. Der Code, etwa `variable.undefined`, eignet sich zur gezielten Zuordnung in Tests. Der deutsche Meldungstext dient der Oberfläche. `PlausibilityWarning.type` bezeichnet den Anzeigebereich, beispielsweise „Regel“ oder „Test“, und ist ebenfalls kein Schweregrad.
+
+Bei Literalabweichungen ergänzt `CharacterDiagnostic` das erwartete und vorhandene Zeichen mit Unicode-Codepoint. Die Positionsangabe bleibt ein UTF-16-Index plus eins; liegt die erste Abweichung in einem Low-Surrogat, beschreibt die Meldung dennoch das vollständige Zeichen. Die Liveprüfung im Detailformular verwendet dieselbe Darstellung für konkrete tokenisierte Eingaben und Masken-/Musterliterale. Testausgaben werden im Browser weiterhin nur auf Länge geprüft, da ihre vollständige Prüfmaske von den serverseitig aufgelösten Variablen abhängt.
+
+Die Liveprüfung füllt Ziffernvorlagen im Feld „Tokenisiert“ zunächst aus der rohen Testeingabe, etwa `####` aus `1900`. Wie im Repository müssen dabei Länge und sämtliche Literale passen; eine teilweise Ersetzung findet nicht statt. Enthält die rohe Eingabe noch Platzhalter, wird diese Prüfung der serverseitigen Expansion überlassen. Die eingegebenen Formularwerte bleiben erhalten.
 
 Speicherfehler werden einmal je Feldpfad und Prüfcode ausgegeben; der zuerst erfasste Meldungstext bleibt erhalten. Unterschiedliche Prüfcodes am selben Feld und derselbe Code an verschiedenen Feldern bleiben getrennt. Variantenbezogene Hinweise werden nicht nach diesem Schlüssel zusammengeführt, da ihre Meldungen unterschiedliche Varianten beschreiben können.
 

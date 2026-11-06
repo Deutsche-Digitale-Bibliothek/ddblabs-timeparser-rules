@@ -2,6 +2,7 @@ package de.deutsche_digitale_bibliothek.timeparser.validation;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +65,15 @@ class RuleMaskOverlapTest {
     @ValueSource(strings = {" ", "\u00a0", "\u202f", "\u2003", "\t"})
     void neverUsesWhitespaceToFillDigitPositions(String whitespace) {
         assertThat(RuleMaskOverlap.witness("#" + whitespace, whitespace + "#")).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"-,‐", "‐,‑", "‑,–", "–,—", "—,−", "−,－", ":,;", "|,@", "x,y", "(,)"})
+    void keepsDistinctDashesAndOtherLiteralsSeparate(String leftLiteral, String rightLiteral) {
+        assertThat(RuleMaskOverlap.witness("1###" + leftLiteral + "####", "##0#" + rightLiteral + "####"))
+                .isEmpty();
+        assertThat(RuleMaskOverlap.witness("1###" + leftLiteral + "####", "##0#" + leftLiteral + "####"))
+                .contains("1000" + leftLiteral + "0000");
     }
 
     @Test

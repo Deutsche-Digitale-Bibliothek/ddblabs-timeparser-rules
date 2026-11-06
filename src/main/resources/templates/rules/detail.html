@@ -503,6 +503,26 @@
         const length = (value) => (value || '').length;
         const hasToken = (value) => (value || '').includes('~');
 
+        function describeCharacter(value, index) {
+            const unit = value.charCodeAt(index);
+            if (index > 0 && unit >= 0xDC00 && unit <= 0xDFFF
+                    && value.charCodeAt(index - 1) >= 0xD800 && value.charCodeAt(index - 1) <= 0xDBFF) {
+                index--;
+            }
+            const codePoint = value.codePointAt(index);
+            const visibleWhitespace = {32: '␠', 160: '⍽', 8239: '⎵', 9: '⇥', 13: '␍', 10: '␊'};
+            const character = String.fromCodePoint(codePoint);
+            const visible = visibleWhitespace[codePoint]
+                ?? (/[\p{Cc}\p{Cf}]/u.test(character) ? 'unsichtbares Zeichen' : character);
+            return '[' + visible + '] (U+' + codePoint.toString(16).toUpperCase().padStart(4, '0') + ')';
+        }
+
+        function mismatchDescription(mask, value, index, numericMask = false) {
+            const expected = numericMask && mask[index] === '#'
+                ? 'eine ASCII-Ziffer [0–9]' : describeCharacter(mask, index);
+            return ' Erwartet: ' + expected + ', vorhanden: ' + describeCharacter(value, index) + '.';
+        }
+
         function feedback(input) {
             let element = input.parentElement.querySelector('[data-live-feedback]');
             if (!element) {
@@ -556,9 +576,19 @@
                         end++;
                     }
                 } else if ((maskCharacter === 'M' || maskCharacter === 'G')
-                        && mask[index + 1] === maskCharacter && pattern[index + 1] === name) {
+                        && mask[index + 1] === maskCharacter) {
+                    if (pattern[index + 1] !== name) {
+                        setLiveError(patternInput, 'Die Maske ' + maskCharacter + maskCharacter
+                            + ' benötigt zwei gleiche Variablenbuchstaben an Position ' + (index + 1) + '.');
+                        return;
+                    }
                     end = index + 2;
                 } else {
+                    if (maskCharacter !== name) {
+                        setLiveError(patternInput, 'Maske und Muster müssen an Position ' + (index + 1)
+                            + ' dasselbe Literal enthalten.' + mismatchDescription(mask, pattern, index));
+                        return;
+                    }
                     index++;
                     continue;
                 }
@@ -573,12 +603,49 @@
             setLiveError(patternInput, '');
         }
 
-        function compareGenerated(valueInput, maskInput, message) {
+        function fillTokenizedDigitTemplate(template, input) {
+            if (!input || !template.includes('#') || template.length !== input.length) {
+                return template;
+            }
+            let result = '';
+            for (let index = 0; index < template.length; index++) {
+                if (template[index] === '#') {
+                    if (!/^\p{Nd}$/u.test(input[index])) {
+                        return template;
+                    }
+                } else if (template[index] !== input[index]) {
+                    return template;
+                }
+                result += input[index];
+            }
+            return result;
+        }
+
+        function compareGenerated(valueInput, maskInput, message, matchInputMask = false, sourceInput = null) {
             if (!valueInput || !maskInput || !valueInput.value || !maskInput.value || hasToken(valueInput.value) || hasToken(maskInput.value)) {
                 setLiveError(valueInput, '');
                 return;
             }
-            setLiveError(valueInput, length(valueInput.value) === length(maskInput.value) ? '' : message);
+            if (matchInputMask && valueInput.value.includes('#') && hasToken(sourceInput?.value)) {
+                setLiveError(valueInput, '');
+                return;
+            }
+            const value = matchInputMask ? fillTokenizedDigitTemplate(valueInput.value, sourceInput?.value) : valueInput.value;
+            if (length(value) !== length(maskInput.value)) {
+                setLiveError(valueInput, message);
+                return;
+            }
+            if (matchInputMask) {
+                const mask = maskInput.value;
+                for (let index = 0; index < mask.length; index++) {
+                    if (mask[index] === '#' ? value[index] < '0' || value[index] > '9' : mask[index] !== value[index]) {
+                        setLiveError(valueInput, 'Der tokenisierte Testwert passt an Position ' + (index + 1)
+                            + ' nicht zur Eingabemaske.' + mismatchDescription(mask, value, index, true));
+                        return;
+                    }
+                }
+            }
+            setLiveError(valueInput, '');
         }
 
         function parseIsoDate(value) {
@@ -636,7 +703,8 @@
             validatePattern(outputPattern, outputMask, 'Ausgabemuster und Ausgabemaske müssen gleich lang sein.', true);
 
             section.querySelectorAll('[data-test-row]').forEach((row) => {
-                compareGenerated(row.querySelector('[data-test-tokenized]'), inputMask, 'Der tokenisierte Testwert muss zur Eingabemaske gleich lang sein.');
+                compareGenerated(row.querySelector('[data-test-tokenized]'), inputMask, 'Der tokenisierte Testwert muss zur Eingabemaske gleich lang sein.', true,
+                    row.querySelector('[data-test-input]'));
                 compareGenerated(row.querySelector('[data-test-output]'), outputMask, 'Die erwartete Ausgabe muss zur Ausgabemaske gleich lang sein.');
                 validateTimespan(row.querySelector('[data-test-timespan]'));
             });

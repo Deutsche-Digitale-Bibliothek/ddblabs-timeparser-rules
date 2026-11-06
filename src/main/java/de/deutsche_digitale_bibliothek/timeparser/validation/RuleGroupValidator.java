@@ -185,6 +185,8 @@ public final class RuleGroupValidator {
             char actual = value.charAt(i);
             if (expected == '#' ? actual < '0' || actual > '9' : expected != actual) {
                 issues.add(new Issue(field, "mask.mismatch", label + " passt an Position " + (i + 1) + " nicht zur " + maskLabel + "."
+                        + " Erwartet: " + (expected == '#' ? "eine ASCII-Ziffer [0–9]" : CharacterDiagnostic.describe(mask, i))
+                        + ", vorhanden: " + CharacterDiagnostic.describe(value, i) + "."
                         + monthMaskHint(field, mask, value)));
                 return;
             }

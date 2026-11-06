@@ -218,7 +218,9 @@ public final class RulePatternValidator {
                 if (maskCharacter != patternCharacter) {
                     issues.add(new Issue(field, "pattern.literal",
                             direction + "maske und " + direction + "muster müssen an Position "
-                                    + (index + 1) + " dasselbe Literal enthalten."));
+                                    + (index + 1) + " dasselbe Literal enthalten. Erwartet: "
+                                    + CharacterDiagnostic.describe(mask, index) + ", vorhanden: "
+                                    + CharacterDiagnostic.describe(pattern, index) + "."));
                     valid = false;
                 }
                 index++;

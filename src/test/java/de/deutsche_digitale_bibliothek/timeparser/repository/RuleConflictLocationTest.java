@@ -101,8 +101,8 @@ class RuleConflictLocationTest {
         newTest.setTimespan("0800-01-01/0800-12-31");
         form.getRules().add(newRule);
 
-        // Die neue Zeile an Index 1 erhält dieselbe vorläufige ID R2 wie die erste.
-        // Ihre Expansion und Testprüfung müssen trotzdem getrennt bleiben.
+        // Die indexbasierte Wunsch-ID R2 der neuen Zeile ist bereits vergeben.
+        // Ihre vorläufige ID, Expansion und Testprüfung müssen getrennt bleiben.
         assertThat(repository.validationIssues(form)).isEmpty();
     }
 

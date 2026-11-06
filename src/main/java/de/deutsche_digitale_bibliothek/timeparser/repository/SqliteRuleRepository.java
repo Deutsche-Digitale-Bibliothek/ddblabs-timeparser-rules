@@ -372,7 +372,7 @@ public class SqliteRuleRepository {
      * @throws CsvRepositoryException wenn ein verwendeter Platzhalter nicht auflösbar ist
      */
     public List<Rule> previewRules(RuleGroupForm form) {
-        return generatedRuleRows(ruleTemplates(form), tokenValuesByName()).stream()
+        return generatedRuleRows(ruleTemplates(form, previewRuleIds(form)), tokenValuesByName()).stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
@@ -385,7 +385,8 @@ public class SqliteRuleRepository {
      * @see #preview(RuleGroupForm)
      */
     public List<RuleTest> previewTests(RuleGroupForm form) {
-        return generatedTests(ruleTemplates(form), testTemplates(form), tokenValuesByName());
+        List<String> ruleIds = previewRuleIds(form);
+        return generatedTests(ruleTemplates(form, ruleIds), testTemplates(form, ruleIds), tokenValuesByName());
     }
 
     /**
@@ -399,12 +400,13 @@ public class SqliteRuleRepository {
      */
     public RulePreview preview(RuleGroupForm form) {
         Map<String, List<String>> tokenValues = tokenValuesByName();
-        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates(form), tokenValues);
+        List<String> ruleIds = previewRuleIds(form);
+        List<GeneratedRuleRow> generatedRuleRows = generatedRuleRows(ruleTemplates(form, ruleIds), tokenValues);
         List<Rule> rules = generatedRuleRows.stream()
                 .map(GeneratedRuleRow::rule)
                 .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR))
                 .toList();
-        List<RuleTest> tests = generateTestsForRows(generatedRuleRows, testTemplates(form), tokenValues);
+        List<RuleTest> tests = generateTestsForRows(generatedRuleRows, testTemplates(form, ruleIds), tokenValues);
         return new RulePreview(rules, tests);
     }
 
@@ -442,7 +444,7 @@ public class SqliteRuleRepository {
     public List<Issue> validationIssues(RuleGroupForm form) {
         Map<String, List<String>> tokens = tokenValuesByName();
         ValidationContext context = validationContext(tokens);
-        return validationIssues(form, tokens, context, false);
+        return validationIssues(form, previewRuleIds(form), tokens, context, false);
     }
 
     /**
@@ -456,19 +458,33 @@ public class SqliteRuleRepository {
     public List<Issue> validationNotices(RuleGroupForm form) {
         Map<String, List<String>> tokens = tokenValuesByName();
         ValidationContext context = validationContext(tokens);
-        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(ruleTemplates(form), tokens);
-        Set<String> testedIds = new HashSet<>(safeGeneratedTests(rows, testTemplates(form), tokens).stream()
+        List<String> ruleIds = previewRuleIds(form);
+        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(ruleTemplates(form, ruleIds), tokens);
+        Set<String> testedIds = new HashSet<>(safeGeneratedTests(rows, testTemplates(form, ruleIds), tokens).stream()
                 .map(RuleTest::getRuleId).toList());
-        return validationNotices(form, context, rows, testedIds);
+        return validationNotices(form, ruleIds, context, rows, testedIds);
     }
 
     /** Verwendet Vorlagenzuordnung und generierte Regel-IDs für Abdeckungshinweise je Variante. */
-    private List<Issue> validationNotices(RuleGroupForm form, ValidationContext context,
+    private List<Issue> validationNotices(RuleGroupForm form, List<String> ruleIds, ValidationContext context,
                                           List<GeneratedRuleRow> rows, Set<String> testedIds) {
         Map<MaskShape, List<GeneratedRuleRow>> previousRows = new LinkedHashMap<>();
         Map<String, Integer> ruleIndices = new LinkedHashMap<>();
+        Map<String, String> coverageTestHints = new LinkedHashMap<>();
         for (int index = 0; index < form.getRules().size(); index++) {
-            ruleIndices.putIfAbsent(previewRuleId(form.getRules().get(index), index), index);
+            var template = form.getRules().get(index);
+            String templateId = ruleIds.get(index);
+            ruleIndices.putIfAbsent(templateId, index);
+            List<String> testIds = new ArrayList<>();
+            for (int testIndex = 0; testIndex < template.getTests().size(); testIndex++) {
+                var test = template.getTests().get(testIndex);
+                if (isCompleteTest(test)) {
+                    testIds.add(previewTestId(test, index, testIndex));
+                }
+            }
+            coverageTestHints.putIfAbsent(templateId, testIds.isEmpty() ? ""
+                    : " Vorhandene Testvorlagen: " + String.join(", ", testIds)
+                            + ". Prüfe die Feldhinweise zu diesen Tests und die Abdeckung dieser Variante.");
         }
         Set<Issue> notices = new LinkedHashSet<>();
         for (GeneratedRuleRow row : rows) {
@@ -480,7 +496,8 @@ public class SqliteRuleRepository {
             if (!testedIds.contains(row.rule().getId())) {
                 notices.add(new Issue(prefix + "tests", "test.coverage",
                         "Für die erzeugte Variante " + row.rule().getId() + " [" + visibleWhitespace(row.rule().getInputMask())
-                                + "] wird kein passender Test exportiert."));
+                                + "] wird kein passender Test exportiert."
+                                + coverageTestHints.getOrDefault(row.templateId(), "")));
             }
             MaskShape shape = maskShape(row.rule().getInputMask());
             List<GeneratedRuleRow> candidates = new ArrayList<>();
@@ -516,10 +533,11 @@ public class SqliteRuleRepository {
      * <p>{@code storedForm} verwendet beim Bestandscheck die bereits gemeinsam
      * expandierten Zeilen mit ihren tatsächlichen Varianten-IDs. Bei einem
      * bearbeiteten Formular wird dagegen jede Zeile
-     * einzeln expandiert, weil vorläufige IDs neuer Zeilen mit vorhandenen
-     * Formular-IDs kollidieren können und keine gemeinsame Herkunft darstellen.</p>
+     * einzeln expandiert, damit ihre Befunde dem passenden Formularfeld zugeordnet
+     * bleiben. Die vorläufigen Vorlagen-IDs werden zuvor für das ganze Formular
+     * kollisionsfrei vergeben und auch für die Testzuordnung verwendet.</p>
      */
-    private List<Issue> validationIssues(RuleGroupForm form, Map<String, List<String>> tokens,
+    private List<Issue> validationIssues(RuleGroupForm form, List<String> ruleIds, Map<String, List<String>> tokens,
                                          ValidationContext context, boolean storedForm) {
         Map<IssueKey, Issue> issues = new LinkedHashMap<>();
         addIssues(issues, "", RuleGroupValidator.validate(form));
@@ -534,10 +552,10 @@ public class SqliteRuleRepository {
             List<GeneratedRuleRow> rows = List.of();
             if (known && isCompleteRule(rule)) {
                 rows = !storedForm
-                        ? generatedRuleRows(List.of(new RuleTemplate(previewRuleId(rule, r),
+                        ? generatedRuleRows(List.of(new RuleTemplate(ruleIds.get(r),
                                 form.getId() == null ? 0 : form.getId(), rule.getInputMask(), rule.getInputPattern(),
                                 rule.getOutputMask(), rule.getOutputPattern())), tokens)
-                        : context.rowsByTemplate.getOrDefault(previewRuleId(rule, r), List.of());
+                        : context.rowsByTemplate.getOrDefault(ruleIds.get(r), List.of());
             }
             Map<String, String> outputTestMasks = new LinkedHashMap<>();
             for (GeneratedRuleRow row : rows) {
@@ -573,7 +591,7 @@ public class SqliteRuleRepository {
                     }
                     continue;
                 }
-                RuleTestTemplate template = new RuleTestTemplate(previewTestId(test, r, t), previewRuleId(rule, r),
+                RuleTestTemplate template = new RuleTestTemplate(previewTestId(test, r, t), ruleIds.get(r),
                         test.getInput(), test.getTokenized(), test.getOutput(), test.getTimespan());
                 // Eine konkrete Eingabe muss zu mindestens einer Regelvariante passen.
                 // Ausgabewerte hängen dagegen von der gerade gewählten Regelbelegung ab.
@@ -727,10 +745,11 @@ public class SqliteRuleRepository {
         List<RuleGroupForm> forms = groupId == null ? findGroupForms(templates, tests) : List.of(findGroupForm(groupId));
         for (RuleGroupForm form : forms) {
             List<GeneratedRuleRow> formRows = context.rowsByGroup.getOrDefault(form.getId(), List.of());
-            for (Issue issue : validationIssues(form, tokenValues, context, true)) {
+            List<String> ruleIds = previewRuleIds(form);
+            for (Issue issue : validationIssues(form, ruleIds, tokenValues, context, true)) {
                 warnings.add(validationWarning(form, issue));
             }
-            for (Issue notice : validationNotices(form, context, formRows, context.testedRuleIds)) {
+            for (Issue notice : validationNotices(form, ruleIds, context, formRows, context.testedRuleIds)) {
                 warnings.add(validationWarning(form, notice));
             }
         }
@@ -1279,7 +1298,7 @@ public class SqliteRuleRepository {
     }
 
     /** Übernimmt vollständige Formularzeilen; neue Zeilen erhalten nur für die Vorschau vorläufige IDs. */
-    private List<RuleTemplate> ruleTemplates(RuleGroupForm form) {
+    private List<RuleTemplate> ruleTemplates(RuleGroupForm form, List<String> ruleIds) {
         long groupId = form.getId() == null ? 0 : form.getId();
         List<RuleTemplate> templates = new ArrayList<>();
         for (int ruleIndex = 0; ruleIndex < form.getRules().size(); ruleIndex++) {
@@ -1288,7 +1307,7 @@ public class SqliteRuleRepository {
                 continue;
             }
             templates.add(new RuleTemplate(
-                    previewRuleId(rule, ruleIndex),
+                    ruleIds.get(ruleIndex),
                     groupId,
                     rule.getInputMask(),
                     rule.getInputPattern(),
@@ -1329,14 +1348,14 @@ public class SqliteRuleRepository {
     }
 
     /** Ignoriert unvollständige Tests und Tests unvollständiger Regeln, ohne das Formular zu verändern. */
-    private List<RuleTestTemplate> testTemplates(RuleGroupForm form) {
+    private List<RuleTestTemplate> testTemplates(RuleGroupForm form, List<String> ruleIds) {
         List<RuleTestTemplate> templates = new ArrayList<>();
         for (int ruleIndex = 0; ruleIndex < form.getRules().size(); ruleIndex++) {
             RuleGroupForm.RuleVariantForm rule = form.getRules().get(ruleIndex);
             if (!isCompleteRule(rule)) {
                 continue;
             }
-            String ruleId = previewRuleId(rule, ruleIndex);
+            String ruleId = ruleIds.get(ruleIndex);
             for (int testIndex = 0; testIndex < rule.getTests().size(); testIndex++) {
                 RuleGroupForm.TestForm test = rule.getTests().get(testIndex);
                 if (!isCompleteTest(test)) {
@@ -1516,8 +1535,34 @@ public class SqliteRuleRepository {
         return tokenValues.get(tokenLookupKey(tokenName));
     }
 
-    private String previewRuleId(RuleGroupForm.RuleVariantForm rule, int ruleIndex) {
-        return isBlank(rule.getId()) ? "R" + (ruleIndex + 1) : rule.getId();
+    /**
+     * Vergibt vorläufige IDs ohne Kollisionen mit anderen Formularzeilen. Auch
+     * unvollständige Vorlagen reservieren ihre expliziten IDs; die Formularwerte
+     * bleiben unverändert. Regeln, Tests und Feldhinweise teilen dieselbe Zuordnung.
+     */
+    private List<String> previewRuleIds(RuleGroupForm form) {
+        Set<String> usedIds = new HashSet<>();
+        for (var rule : form.getRules()) {
+            if (!isBlank(rule.getId())) {
+                usedIds.add(rule.getId());
+            }
+        }
+        List<String> ruleIds = new ArrayList<>(form.getRules().size());
+        for (int index = 0; index < form.getRules().size(); index++) {
+            String explicitId = form.getRules().get(index).getId();
+            if (!isBlank(explicitId)) {
+                ruleIds.add(explicitId);
+                continue;
+            }
+            String baseId = "R" + (index + 1);
+            String candidate = baseId;
+            int suffix = 2;
+            while (!usedIds.add(candidate)) {
+                candidate = baseId + "_" + suffix++;
+            }
+            ruleIds.add(candidate);
+        }
+        return ruleIds;
     }
 
     private String previewTestId(RuleGroupForm.TestForm test, int ruleIndex, int testIndex) {
