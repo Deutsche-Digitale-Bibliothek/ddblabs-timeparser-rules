@@ -15,6 +15,7 @@ Die Anwendung pflegt Vorlagen für Regeln und Beispiele des Timeparsers. Sie spe
 | Daten und Bericht eines Downloads zusammenhalten | [ExportSnapshot](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/model/ExportSnapshot.java) |
 | CSV und ZIP schreiben | [CsvExportService](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/export/CsvExportService.java) |
 | Hinweise anzeigen und Download ausliefern | [RuleOverviewController](../src/main/java/de/deutsche_digitale_bibliothek/timeparser/web/RuleOverviewController.java) |
+| Regelherkunft in den erzeugten Listen anzeigen | `SqliteRuleRepository.generatedRuleListing`, `generatedTestListing` und `RuleOverviewController` |
 
 Die `package-info.java`-Dateien beschreiben die Verantwortung der einzelnen Pakete. Die Javadocs an Klassen und Methoden erläutern deren Verträge und die nicht unmittelbar sichtbaren Entscheidungen.
 
@@ -34,6 +35,8 @@ Das Repository unterscheidet intern:
 - `GeneratedTestCandidate`: passende Testkombination vor der Vergabe ihrer Ausgabe-ID.
 
 Neue gespeicherte Vorlagen erhalten technische IDs wie `R42` und `T42`. Vorschauen für neue Zeilen arbeiten mit vorläufigen IDs. Erzeugte Varianten verwenden möglichst die Vorlagen-ID und anschließend Suffixe wie `R42_2`; Kollisionen werden innerhalb eines Generierungslaufs umgangen. Diese IDs können sich bei anderer Variantenreihenfolge ändern. Links zur Bearbeitung verwenden deshalb die gespeicherte Vorlagen-ID.
+
+`RuleLocation` beschreibt für die Navigation die konkrete ID, Gruppen-ID, den Gruppennamen und die bearbeitbare Vorlagen-ID. Die erzeugten Listen erhalten Regeln beziehungsweise Tests und ihre Herkunft aus derselben Expansion als `GeneratedRuleListing` beziehungsweise `GeneratedTestListing`. Die vorhandenen CSV-Modelle und Exportspalten bleiben dabei erhalten. Links verwenden den URL-codierten Vorlagenanker, keine aus der Varianten-ID abgeleitete Gruppe.
 
 Vorläufige Regel-IDs reservieren zuerst alle expliziten IDs des Formulars, auch die unvollständiger Zeilen. Neue Zeilen erhalten danach eindeutige IDs. Vorschau, Testzuordnung, Validierung und Abdeckungshinweise verwenden dieselbe Zuordnung, ohne die Formularwerte zu ändern. So bleibt beispielsweise eine neue zweite Zeile von einer vorhandenen Vorlage `R2` getrennt.
 

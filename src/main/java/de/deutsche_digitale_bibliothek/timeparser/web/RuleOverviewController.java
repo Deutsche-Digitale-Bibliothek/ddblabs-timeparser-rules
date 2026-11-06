@@ -44,7 +44,9 @@ public class RuleOverviewController {
     /** Zeigt erzeugte Regelvarianten sowie Hinweise zu derzeitigen Bestandsfehlern. */
     @GetMapping("/generated-rules")
     public String generatedRules(Model model) {
-        model.addAttribute("rules", repository.generatedRules());
+        var listing = repository.generatedRuleListing();
+        model.addAttribute("rules", listing.rules());
+        model.addAttribute("ruleLocationsById", listing.locations());
         model.addAttribute("plausibilityWarnings", repository.plausibilityWarnings());
         return "rules/generated-rules";
     }
@@ -52,7 +54,9 @@ public class RuleOverviewController {
     /** Zeigt passende expandierte Testvorlagen; die Testfälle werden nicht ausgeführt. */
     @GetMapping("/generated-tests")
     public String generatedTests(Model model) {
-        model.addAttribute("tests", repository.generatedTests());
+        var listing = repository.generatedTestListing();
+        model.addAttribute("tests", listing.tests());
+        model.addAttribute("ruleLocationsById", listing.locations());
         model.addAttribute("plausibilityWarnings", repository.plausibilityWarnings());
         return "rules/generated-tests";
     }

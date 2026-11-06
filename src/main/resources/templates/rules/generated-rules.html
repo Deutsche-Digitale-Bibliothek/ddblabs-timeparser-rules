@@ -60,6 +60,7 @@
             <thead class="table-primary">
             <tr>
                 <th scope="col">ID</th>
+                <th scope="col">Regelgruppe</th>
                 <th scope="col">Eingabemaske</th>
                 <th scope="col">Eingabemuster</th>
                 <th scope="col">Ausgabemaske</th>
@@ -67,8 +68,21 @@
             </tr>
             </thead>
             <tbody>
-            <tr th:each="rule : ${rules}">
-                <th scope="row" th:text="${rule.id}">R1</th>
+            <tr th:each="rule : ${rules}" th:with="location=${ruleLocationsById == null ? null : ruleLocationsById[rule.id]}">
+                <th scope="row">
+                    <a th:if="${location != null}" th:href="@{/rules/{id}(id=${location.groupId})} + '#' + ${location.fragment()}">
+                        <code th:text="${rule.id}">R1</code>
+                    </a>
+                    <code th:unless="${location != null}" th:text="${rule.id}">R1</code>
+                </th>
+                <td>
+                    <th:block th:if="${location != null}">
+                        <a th:href="@{/rules/{id}(id=${location.groupId})} + '#' + ${location.fragment()}"
+                           th:text="${#strings.isEmpty(location.groupName)} ? |Gruppe ${location.groupId}| : ${location.groupName}">Regelgruppe</a>
+                        <div class="small text-secondary">Vorlage <code th:text="${location.templateId}">R1</code></div>
+                    </th:block>
+                    <span th:unless="${location != null}" class="text-secondary">Keine Zuordnung</span>
+                </td>
                 <td><code th:text="${rule.inputMask}">####</code></td>
                 <td><code th:text="${rule.inputPattern}">JJJJ</code></td>
                 <td><code th:text="${rule.outputMask}">####</code></td>

@@ -7,6 +7,7 @@ Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale 
 ## Funktionen
 
 - Regelgruppen anzeigen, anlegen, bearbeiten und löschen
+- Regelgruppen aus den erzeugten Regeln und Tests direkt öffnen
 - zugehörige Regeln und Tests direkt in der Detailansicht pflegen
 - IDs und Beziehungen automatisch vergeben
 - Platzhalter/Tokens wie `~approx` verwalten und in Regeln/Tests expandieren
@@ -18,6 +19,8 @@ Die Anwendung kann beim ersten Start `rules.csv` und `tests.csv` in eine lokale 
 - Login-Schutz mit per ENV konfigurierbaren Zugangsdaten
 - konfigurierbarer Port, URL-Prefix, SQLite-Pfad und Log-Level
 - HTTP-Kompression
+
+In der Liste der erzeugten Regeln stehen Gruppenname und Vorlagen-ID. Regel-IDs und Regelreferenzen der Testliste öffnen die zugehörige Regelgruppe direkt an der bearbeitbaren Regelvorlage. Auch erzeugte Varianten wie `R370_2` verweisen auf ihre tatsächliche Herkunft.
 
 ## Architektur
 

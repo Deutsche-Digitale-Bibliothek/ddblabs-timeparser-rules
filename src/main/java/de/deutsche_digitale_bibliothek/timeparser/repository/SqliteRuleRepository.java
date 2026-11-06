@@ -4,9 +4,12 @@ import de.deutsche_digitale_bibliothek.timeparser.export.CsvExportService;
 import de.deutsche_digitale_bibliothek.timeparser.export.ExportDataset;
 import de.deutsche_digitale_bibliothek.timeparser.export.ExportDatasetFactory;
 import de.deutsche_digitale_bibliothek.timeparser.model.ExportSnapshot;
+import de.deutsche_digitale_bibliothek.timeparser.model.GeneratedRuleListing;
+import de.deutsche_digitale_bibliothek.timeparser.model.GeneratedTestListing;
 import de.deutsche_digitale_bibliothek.timeparser.model.PlausibilityWarning;
 import de.deutsche_digitale_bibliothek.timeparser.model.Rule;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleGroupSummary;
+import de.deutsche_digitale_bibliothek.timeparser.model.RuleLocation;
 import de.deutsche_digitale_bibliothek.timeparser.model.RulePreview;
 import de.deutsche_digitale_bibliothek.timeparser.model.RuleTest;
 import de.deutsche_digitale_bibliothek.timeparser.model.Token;
@@ -344,6 +347,21 @@ public class SqliteRuleRepository {
     }
 
     /**
+     * Liefert erzeugte Regeln samt eindeutiger Herkunft aus derselben Expansion.
+     * Auch bei gleichnamigen gespeicherten Vorlagen bleibt jede Zeile ihrer
+     * ursprünglichen Vorlage zugeordnet. CSV-Regelzeilen bleiben unverändert.
+     *
+     * @return nach ID sortierte Regelzeilen und Herkunft nach konkreter Regel-ID
+     */
+    @Transactional(readOnly = true)
+    public GeneratedRuleListing generatedRuleListing() {
+        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(ruleTemplates((Long) null), tokenValuesByName());
+        List<Rule> rules = rows.stream().map(GeneratedRuleRow::rule)
+                .sorted(Comparator.comparing(Rule::getId, ID_COMPARATOR)).toList();
+        return new GeneratedRuleListing(rules, generatedRuleLocations(rows, groupNamesById()));
+    }
+
+    /**
      * Erzeugt konkrete Tests für die auflösbaren Regelvarianten aller Gruppen.
      * Nur Kombinationen mit passender tokenisierter Eingabe werden übernommen;
      * dies ist keine Ausführung oder Erfolgsbewertung der Testfälle.
@@ -361,6 +379,21 @@ public class SqliteRuleRepository {
      */
     public List<RuleTest> generatedTestsForGroup(long groupId) {
         return generatedTests(groupId);
+    }
+
+    /**
+     * Liefert erzeugte Tests und die Herkunft ihrer Regelreferenzen. Regeln werden
+     * einmal expandiert und für Testerzeugung sowie Herkunft verwendet; die Anzahl
+     * der Datenbankabfragen wächst nicht mit der Anzahl der erzeugten Zeilen.
+     *
+     * @return konkrete Tests und Regelherkunft nach der im Test referenzierten Regel-ID
+     */
+    @Transactional(readOnly = true)
+    public GeneratedTestListing generatedTestListing() {
+        Map<String, List<String>> tokens = tokenValuesByName();
+        List<GeneratedRuleRow> rows = safeGeneratedRuleRows(ruleTemplates((Long) null), tokens);
+        List<RuleTest> tests = safeGeneratedTests(rows, testTemplates((Long) null), tokens);
+        return new GeneratedTestListing(tests, generatedRuleLocations(rows, groupNamesById()));
     }
 
     /**
@@ -1186,6 +1219,27 @@ public class SqliteRuleRepository {
             rule.getTests().add(test);
         }
         return List.copyOf(groups.values());
+    }
+
+    /** Gruppenbezeichnungen für Herkunftsangaben, ohne Vorlagen- oder Testzähler zu berechnen. */
+    private Map<Long, String> groupNamesById() {
+        Map<Long, String> names = new LinkedHashMap<>();
+        jdbcTemplate.query("SELECT id, name FROM rule_groups ORDER BY id", (RowCallbackHandler) rs ->
+                names.put(rs.getLong("id"), rs.getString("name")));
+        return names;
+    }
+
+    private Map<String, RuleLocation> generatedRuleLocations(List<GeneratedRuleRow> rows, Map<Long, String> groupNames) {
+        Map<String, RuleLocation> locations = new LinkedHashMap<>();
+        for (GeneratedRuleRow row : rows) {
+            locations.put(row.rule().getId(), ruleLocation(row, groupNames));
+        }
+        return locations;
+    }
+
+    private RuleLocation ruleLocation(GeneratedRuleRow row, Map<Long, String> groupNames) {
+        return new RuleLocation(row.rule().getId(), row.templateId(), row.groupId(),
+                groupNames.getOrDefault(row.groupId(), ""));
     }
 
     private List<RuleTest> generatedTests(Long groupId) {

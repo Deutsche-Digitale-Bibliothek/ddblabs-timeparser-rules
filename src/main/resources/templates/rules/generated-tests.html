@@ -68,9 +68,18 @@
             </tr>
             </thead>
             <tbody>
-            <tr th:each="test : ${tests}">
+            <tr th:each="test : ${tests}" th:with="location=${ruleLocationsById == null ? null : ruleLocationsById[test.ruleId]}">
                 <th scope="row" th:text="${test.id}">T1</th>
-                <td><code th:text="${test.ruleId}">R1</code></td>
+                <td>
+                    <th:block th:if="${location != null}">
+                        <a th:href="@{/rules/{id}(id=${location.groupId})} + '#' + ${location.fragment()}">
+                            <code th:text="${test.ruleId}">R1</code>
+                        </a>
+                        <div class="small text-secondary"
+                             th:text="${#strings.isEmpty(location.groupName)} ? |Gruppe ${location.groupId}| : ${location.groupName}">Regelgruppe</div>
+                    </th:block>
+                    <code th:unless="${location != null}" th:text="${test.ruleId}">R1</code>
+                </td>
                 <td><code th:text="${test.input}">März 2010</code></td>
                 <td><code th:text="${test.tokenized}">MM 2010</code></td>
                 <td><code th:text="${test.output}">2010-03</code></td>
