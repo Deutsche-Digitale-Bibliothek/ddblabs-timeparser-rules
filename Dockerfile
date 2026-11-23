@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM maven:3-eclipse-temurin-25 AS build
+FROM maven:3-amazoncorretto-25 AS build
 
 WORKDIR /workspace
 
@@ -8,9 +8,11 @@ COPY pom.xml ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.m2 mvn -B clean package -DskipTests
 
-FROM eclipse-temurin:25-jre
+FROM amazoncorretto:25
 
-RUN groupadd --system --gid 10001 app \
+RUN dnf install -y shadow-utils \
+    && dnf clean all \
+    && groupadd --system --gid 10001 app \
     && useradd --system --uid 10001 --gid app --home-dir /app --shell /usr/sbin/nologin app \
     && mkdir -p /app /data \
     && chown -R app:app /app /data

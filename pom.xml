@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.2</version>
+        <version>4.2.0</version>
         <relativePath/>
     </parent>
 
@@ -19,9 +19,7 @@
 
     <properties>
         <java.version>25</java.version>
-        <lombok.version>1.18.48</lombok.version>
         <datatables.version>3.1.5</datatables.version>
-        <datatables-bootstrap5.version>3.1.4</datatables-bootstrap5.version>
     </properties>
 
     <dependencies>
@@ -53,12 +51,11 @@
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
-            <version>3.51.0.0</version>
+            <version>3.54.1.0</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
-            <version>${lombok.version}</version>
             <optional>true</optional>
         </dependency>
         <dependency>
@@ -85,7 +82,7 @@
         <dependency>
             <groupId>org.webjars.npm</groupId>
             <artifactId>datatables.net-bs5</artifactId>
-            <version>${datatables-bootstrap5.version}</version>
+            <version>${datatables.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>*</groupId>
